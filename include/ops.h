@@ -6,6 +6,7 @@
 namespace ops {
 /// matrix ops
 Tensor matmul(const Tensor &a, const Tensor &b);
+Tensor matmul_ex(const Tensor &a, const Tensor &b, bool transpose_a, bool transpose_b);
 Tensor add(const Tensor &a, const Tensor &b);
 
 /// activation functions

@@ -1,25 +1,35 @@
 # LLM Inference Engine in C++
 
-A barebones LLM inference engine implemented in pure C++ without dependencies on PyTorch, TensorFlow, or transformers library. Supports GPT-2 and SmolLM2-360M-Instruct. This is similar to projects like llama.cpp but focused on simplicity for learning purposes.
+This repository contains a CPU-first LLM inference engine written in modern C++. It runs GPT-2 and SmolLM2-360M-Instruct without depending on Python for inference. The codebase focuses on clarity and directness, while still using fast CPU kernels where available.
+
+The current implementation uses:
+- A simple `Tensor` type with contiguous `float32` storage in [include/tensor.h](include/tensor.h).
+- Core ops such as matmul, softmax, GELU, layer norm, and RMSNorm in [src/ops.cpp](src/ops.cpp).
+- Two model implementations:
+  - GPT-2 in [src/gpt2.cpp](src/gpt2.cpp).
+  - SmolLM2 in [src/smollm2.cpp](src/smollm2.cpp).
+
+CPU performance is primarily driven by BLAS (Accelerate on macOS) through `Tensor::matmul` and `Tensor::matmul_ex`. Some attention loops are still implemented in C++ for clarity and can be optimized further. GPU execution is not implemented yet.
 
 ## Supported Models
 
 | Model | Architecture | Parameters | Features |
 |-------|-------------|------------|----------|
 | GPT-2 | Transformer | 124M | Token + Position embeddings, GELU, LayerNorm |
-| **SmolLM2-360M-Instruct** | LLaMA | 360M | RoPE, GQA, SwiGLU, RMSNorm, Chat Template |
+| SmolLM2-360M-Instruct | LLaMA | 360M | RoPE, GQA, SwiGLU, RMSNorm, Chat Template |
 
-## Features
+## What’s Implemented
 
-- ✅ Pure C++ implementation (no Python dependencies for inference)
-- ✅ Loads model weights from HuggingFace
-- ✅ Custom tensor operations (matmul, GELU, SiLU, softmax, layer norm, RMSNorm)
-- ✅ Full transformer architecture implementation
-- ✅ SmolLM2 with Grouped Query Attention (GQA) and Rotary Position Embeddings (RoPE)
-- ✅ Text generation with temperature, top-k, and top-p sampling
-- ✅ KV-cache for efficient autoregressive generation
-- ✅ Interactive chat mode
-- ✅ Automatic tokenizer download
+- Weight loading from a custom binary format (see [src/model_loader.cpp](src/model_loader.cpp)).
+- Tokenization:
+  - GPT-2 BPE tokenizer in [src/tokenizer.cpp](src/tokenizer.cpp).
+  - SmolLM2 tokenizer and chat template in [src/smollm2_tokenizer.cpp](src/smollm2_tokenizer.cpp).
+- Transformer blocks:
+  - GPT-2 attention and MLP in [src/gpt2.cpp](src/gpt2.cpp).
+  - SmolLM2 GQA attention, RoPE, RMSNorm, and SwiGLU in [src/smollm2.cpp](src/smollm2.cpp).
+- Autoregressive generation with sampling settings in the model main programs:
+  - GPT-2 entry point in [src/main.cpp](src/main.cpp).
+  - SmolLM2 entry point in [src/smollm2_main.cpp](src/smollm2_main.cpp).
 
 ## Project Structure
 
@@ -53,12 +63,14 @@ A barebones LLM inference engine implemented in pure C++ without dependencies on
 ### Prerequisites
 
 - CMake 3.15+
-- C++17 compatible compiler (GCC, Clang, or MSVC)
-- Python 3.x with transformers library (only for weight export)
+- A C++17 compiler (Apple Clang, Clang, or GCC)
+- Python 3.x with `transformers` and `torch` only for weight export
+
+On macOS, you will get the fastest CPU performance by linking to Accelerate (already wired in CMake). Optional OpenMP support can be enabled via Homebrew `libomp`.
 
 ### Steps
 
-1. **Export SmolLM2 weights** (requires Python with transformers):
+1) Export SmolLM2 weights (requires Python with transformers):
 
 ```bash
 pip install transformers torch
@@ -67,7 +79,7 @@ python scripts/export_smollm2_weights.py
 
 This will download SmolLM2-360M-Instruct from HuggingFace and save weights to `weights/smollm2/smollm2_weights.bin` (~1.4GB).
 
-2. **Build the C++ inference engine**:
+2) Build the C++ inference engine:
 
 ```bash
 mkdir -p build
@@ -76,7 +88,7 @@ cmake ..
 make
 ```
 
-3. **Run inference**:
+3) Run inference:
 
 ```bash
 # Single prompt
@@ -87,10 +99,10 @@ make
 
 # With custom parameters
 ./smollm2_inference --prompt "Explain quantum computing" \
-    --temperature 0.7 \
-    --max-tokens 256 \
-    --top-k 50 \
-    --top-p 0.9
+  --temperature 0.7 \
+  --max-tokens 256 \
+  --top-k 50 \
+  --top-p 0.9
 ```
 
 ### SmolLM2 Options
@@ -110,21 +122,13 @@ Options:
 
 ## GPT-2 Usage
 
-1. **Export GPT-2 weights**:
+1) Export GPT-2 weights:
 
 ```bash
 python scripts/export_weights.py
 ```
 
-2. **Run GPT-2 inference**:
-
-```bash
-./build/gpt2_inference "Your prompt here"
-```
-
-This will download GPT-2 from HuggingFace and save weights to `weights/gpt2_weights.bin` (~650MB).
-
-2. **Build the C++ inference engine**:
+2) Build the C++ inference engine (same as above):
 
 ```bash
 mkdir -p build
@@ -133,16 +137,16 @@ cmake ..
 make
 ```
 
-3. **Run inference**:
+3) Run GPT-2 inference:
 
 ```bash
-./build/gpt2_inference "Your prompt here"
+./gpt2_inference "Your prompt here"
 ```
 
 Or use the default prompt:
 
 ```bash
-./build/gpt2_inference
+./gpt2_inference
 ```
 
 ## SmolLM2 Architecture
@@ -173,20 +177,20 @@ rms_norm_eps: 1e-5
 
 ## How It Works
 
-### 1. Weight Export (`export_smollm2_weights.py`)
+### 1. Weight Export (scripts/export_smollm2_weights.py)
 
 The Python script loads SmolLM2 from HuggingFace and exports all weights to a binary format:
 - Each tensor is stored with: name length, name, shape dimensions, shape values, and float32 data
 - Total: 199 tensors (embedding, 32 transformer layers, final RMSNorm)
 
-### 2. Model Loading (`model_loader.cpp`)
+### 2. Model Loading (src/model_loader.cpp)
 
 Reads the binary weight file and loads all tensors into memory:
 - Parses tensor names and shapes
 - Allocates memory for each weight matrix
 - Stores in a hashmap for fast lookup
 
-### 3. Tokenization (`smollm2_tokenizer.cpp`)
+### 3. Tokenization (src/smollm2_tokenizer.cpp)
 
 Downloads SmolLM2 tokenizer from HuggingFace:
 - 49,152 token vocabulary
@@ -194,7 +198,7 @@ Downloads SmolLM2 tokenizer from HuggingFace:
 - Special tokens: `<|im_start|>`, `<|im_end|>`, `<|endoftext|>`
 - Chat template support for instruct models
 
-### 4. SmolLM2 Architecture (`smollm2.cpp`)
+### 4. SmolLM2 Architecture (src/smollm2.cpp)
 
 Implements the full LLaMA-style architecture:
 - **Token Embeddings**: Converts token IDs to 960-dimensional vectors
@@ -216,26 +220,23 @@ Implements the full LLaMA-style architecture:
 
 ## Current Limitations
 
-1. **Performance**: Naive matrix multiplication (no SIMD, threading, or GPU)
-2. **Memory**: All weights loaded into RAM (~1.4GB for SmolLM2-360M)
-3. **Precision**: Using float32 (no quantization)
+1. **Performance**: Fast CPU matmul via BLAS is in place, but attention and other ops are still mostly hand-written loops.
+2. **Memory**: All weights are loaded into RAM (~1.4GB for SmolLM2-360M).
+3. **Precision**: Float32 only (no quantization yet).
+4. **GPU**: No GPU backend (Metal/CUDA/Vulkan) yet.
 
 ## Future Improvements
 
-- [ ] SIMD optimizations (AVX2, NEON)
-- [ ] Multi-threading for matrix operations
-- [ ] Weight quantization (int8, int4)
-- [ ] Flash Attention
-- [ ] Metal/CUDA support
-- [ ] Support for larger SmolLM2 variants (1.7B)
+- SIMD optimizations (AVX2, NEON)
+- More multi-threading or batched attention
+- Weight quantization (int8, int4)
+- Flash Attention
+- Metal/CUDA support
+- Support for larger SmolLM2 variants (1.7B)
 
-## Performance
+## Performance Notes
 
-On a modern CPU:
-- Load time: ~3-5 seconds
-- Generation speed: ~0.5-2 tokens/second (naive implementation)
-
-Much faster performance is possible with optimizations (SIMD, quantization, etc.)
+On macOS, the code uses Accelerate BLAS for matrix multiplication, which is the main speedup path. If you built with OpenMP (via libomp), some attention loops run in parallel. Performance depends heavily on sequence length and model size, and is best measured with a consistent prompt length and token count.
 
 ## License
 

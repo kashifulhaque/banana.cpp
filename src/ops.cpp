@@ -10,6 +10,10 @@ Tensor matmul(const Tensor& a, const Tensor& b) {
     return Tensor::matmul(a, b);
 }
 
+Tensor matmul_ex(const Tensor& a, const Tensor& b, bool transpose_a, bool transpose_b) {
+    return Tensor::matmul_ex(a, b, transpose_a, transpose_b);
+}
+
 Tensor add(const Tensor& a, const Tensor& b) {
     return Tensor::add(a, b);
 }

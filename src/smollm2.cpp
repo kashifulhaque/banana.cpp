@@ -188,19 +188,9 @@ Tensor SmolLM2Model::linear(const Tensor& x, const Tensor& weight) {
     int out_features = weight.shape[0];
     int batch = x.data.size() / in_features;
     
-    Tensor output({batch, out_features});
+    Tensor output = ops::matmul_ex(x, weight, false, true);
     if (batch == 1) {
         output.shape = {out_features};
-    }
-    
-    for (int b = 0; b < batch; ++b) {
-        for (int o = 0; o < out_features; ++o) {
-            float sum = 0.0f;
-            for (int i = 0; i < in_features; ++i) {
-                sum += x.data[b * in_features + i] * weight.data[o * in_features + i];
-            }
-            output.data[b * out_features + o] = sum;
-        }
     }
     
     // Reshape output appropriately
@@ -282,6 +272,9 @@ Tensor SmolLM2Model::attention(const Tensor& x, int layer_idx, int start_pos) {
     std::fill(attn_output.data.begin(), attn_output.data.end(), 0.0f);
     
     // For each query head
+    #ifdef _OPENMP
+    #pragma omp parallel for
+    #endif
     for (int h = 0; h < num_heads; ++h) {
         int kv_head = h / num_groups;  // which KV head this query head uses
         
@@ -405,6 +398,9 @@ Tensor SmolLM2Model::attention_with_cache(const Tensor& x, int layer_idx, KVCach
     Tensor attn_output({seq_len, hidden_size});
     std::fill(attn_output.data.begin(), attn_output.data.end(), 0.0f);
     
+    #ifdef _OPENMP
+    #pragma omp parallel for
+    #endif
     for (int h = 0; h < num_heads; ++h) {
         int kv_head = h / num_groups;
         

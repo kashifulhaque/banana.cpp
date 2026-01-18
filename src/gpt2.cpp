@@ -68,16 +68,10 @@ Tensor GPT2Model::attention(const Tensor& x, int layer_idx) {
     
     /// linear projection to get Q, K, V
     /// c_attn projects to 3 * n_embd (for Q, K, V concatenated)
-    Tensor qkv({seq_len, n_embd * 3});
-    
+    Tensor qkv = ops::matmul_ex(x, *c_attn_weight, false, false);
     for (int i = 0; i < seq_len; ++i) {
         for (int j = 0; j < n_embd * 3; ++j) {
-            float sum = c_attn_bias->data[j];
-            for (int k = 0; k < n_embd; ++k) {
-                /// weights are transposed in PyTorch convention
-                sum += x.data[i * n_embd + k] * c_attn_weight->data[k * (n_embd * 3) + j];
-            }
-            qkv.data[i * (n_embd * 3) + j] = sum;
+            qkv.data[i * (n_embd * 3) + j] += c_attn_bias->data[j];
         }
     }
     
@@ -97,14 +91,10 @@ Tensor GPT2Model::attention(const Tensor& x, int layer_idx) {
     /// compute attention: Q @ K^T / sqrt(head_dim)
     Tensor scores({seq_len, seq_len});
     float scale = 1.0f / std::sqrt(static_cast<float>(head_dim));
-    
+    scores = ops::matmul_ex(q, k, false, true);
     for (int i = 0; i < seq_len; ++i) {
         for (int j = 0; j < seq_len; ++j) {
-            float sum = 0.0f;
-            for (int d = 0; d < n_embd; ++d) {
-                sum += q.data[i * n_embd + d] * k.data[j * n_embd + d];
-            }
-            scores.data[i * seq_len + j] = sum * scale;
+            scores.data[i * seq_len + j] *= scale;
         }
     }
     
@@ -119,28 +109,13 @@ Tensor GPT2Model::attention(const Tensor& x, int layer_idx) {
     Tensor attn_weights = ops::softmax(scores, -1);
     
     /// apply attention to values: attn_weights @ V
-    Tensor attn_output({seq_len, n_embd});
-    
-    for (int i = 0; i < seq_len; ++i) {
-        for (int d = 0; d < n_embd; ++d) {
-            float sum = 0.0f;
-            for (int j = 0; j < seq_len; ++j) {
-                sum += attn_weights.data[i * seq_len + j] * v.data[j * n_embd + d];
-            }
-            attn_output.data[i * n_embd + d] = sum;
-        }
-    }
+    Tensor attn_output = ops::matmul_ex(attn_weights, v, false, false);
     
     /// output projection
-    Tensor output({seq_len, n_embd});
-    
+    Tensor output = ops::matmul_ex(attn_output, *c_proj_weight, false, false);
     for (int i = 0; i < seq_len; ++i) {
         for (int j = 0; j < n_embd; ++j) {
-            float sum = c_proj_bias->data[j];
-            for (int k = 0; k < n_embd; ++k) {
-                sum += attn_output.data[i * n_embd + k] * c_proj_weight->data[k * n_embd + j];
-            }
-            output.data[i * n_embd + j] = sum;
+            output.data[i * n_embd + j] += c_proj_bias->data[j];
         }
     }
     
@@ -165,15 +140,10 @@ Tensor GPT2Model::mlp(const Tensor& x, int layer_idx) {
     int n_inner = n_embd * 4;  // GPT-2 uses 4x expansion
     
     /// first linear layer
-    Tensor hidden({seq_len, n_inner});
-    
+    Tensor hidden = ops::matmul_ex(x, *c_fc_weight, false, false);
     for (int i = 0; i < seq_len; ++i) {
         for (int j = 0; j < n_inner; ++j) {
-            float sum = c_fc_bias->data[j];
-            for (int k = 0; k < n_embd; ++k) {
-                sum += x.data[i * n_embd + k] * c_fc_weight->data[k * n_inner + j];
-            }
-            hidden.data[i * n_inner + j] = sum;
+            hidden.data[i * n_inner + j] += c_fc_bias->data[j];
         }
     }
     
@@ -181,15 +151,10 @@ Tensor GPT2Model::mlp(const Tensor& x, int layer_idx) {
     hidden = ops::gelu(hidden);
     
     /// second linear layer
-    Tensor output({seq_len, n_embd});
-    
+    Tensor output = ops::matmul_ex(hidden, *c_proj_weight, false, false);
     for (int i = 0; i < seq_len; ++i) {
         for (int j = 0; j < n_embd; ++j) {
-            float sum = c_proj_bias->data[j];
-            for (int k = 0; k < n_inner; ++k) {
-                sum += hidden.data[i * n_inner + k] * c_proj_weight->data[k * n_embd + j];
-            }
-            output.data[i * n_embd + j] = sum;
+            output.data[i * n_embd + j] += c_proj_bias->data[j];
         }
     }
     
