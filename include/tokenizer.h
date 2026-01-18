@@ -1,31 +1,30 @@
+#ifndef TOKENIZER_H
+#define TOKENIZER_H
+
 #include <vector>
 #include <string>
 #include <unordered_map>
+#include <map>
 
 class Tokenizer {
 public:
+    Tokenizer();
+    ~Tokenizer();
+    
+    bool load_vocab(const std::string& vocab_path);
+    bool download_and_load();  // Download tokenizer if not exists
+    
+    std::vector<int> encode(const std::string& text);
+    std::string decode(const std::vector<int>& tokens);
+    
+private:
     std::unordered_map<std::string, int> token_to_id;
     std::unordered_map<int, std::string> id_to_token;
-
-    void load(const std::string& vocab_path) {
-        // TODO: load vocab json/file here
-        // for testing, manually insert something 'like token_to_id["hello"] = 50256;'
-    }
-
-    std::vector<int> encode(const std::string& text) {
-        // TODO: implement bpe split logic
-        // return dummy for compilation
-        return {15496, 11}; // "Hello", ","
-    }
-
-    std::string decode(const std::vector<int>& tokens) {
-        std::string text = "";
-        for(int t : tokens) {
-            if(id_to_token.count(t)) {
-                text += id_to_token[t];
-            }
-        }
-
-        return text;
-    }
+    std::map<std::pair<std::string, std::string>, int> bpe_ranks;  // Use map instead of unordered_map
+    
+    std::vector<std::string> split_to_words(const std::string& text);
+    std::string bytes_to_unicode(unsigned char c);
+    std::vector<std::string> bpe(const std::string& token);
 };
+
+#endif // TOKENIZER_H

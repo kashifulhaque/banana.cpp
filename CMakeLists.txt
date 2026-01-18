@@ -13,6 +13,7 @@ set(SOURCES
     src/model_loader.cpp
     src/ops.cpp
     src/tokenizer.cpp
+    src/gpt2.cpp
 )
 
 # Create executable
