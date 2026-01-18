@@ -19,7 +19,7 @@ const Tensor* GPT2Model::get_weight(const std::string& name) {
 }
 
 Tensor GPT2Model::embedding(const std::vector<int>& input_ids) {
-    // Get embeddings: wte (token embeddings) and wpe (position embeddings)
+    /// get embeddings: wte (token embeddings) and wpe (position embeddings)
     const Tensor* wte = get_weight("transformer.wte.weight");
     const Tensor* wpe = get_weight("transformer.wpe.weight");
     
@@ -31,10 +31,10 @@ Tensor GPT2Model::embedding(const std::vector<int>& input_ids) {
     int seq_len = input_ids.size();
     int n_embd = config_.n_embd;
     
-    // Create output tensor [seq_len, n_embd]
+    /// create output tensor [seq_len, n_embd]
     Tensor output({seq_len, n_embd});
     
-    // Add token and position embeddings
+    /// add token and position embeddings
     for (int pos = 0; pos < seq_len; ++pos) {
         int token_id = input_ids[pos];
         
@@ -49,7 +49,7 @@ Tensor GPT2Model::embedding(const std::vector<int>& input_ids) {
 }
 
 Tensor GPT2Model::attention(const Tensor& x, int layer_idx) {
-    // Self-attention
+    /// self-attention
     std::string prefix = "transformer.h." + std::to_string(layer_idx) + ".attn.";
     
     const Tensor* c_attn_weight = get_weight(prefix + "c_attn.weight");
@@ -66,22 +66,22 @@ Tensor GPT2Model::attention(const Tensor& x, int layer_idx) {
     int n_head = config_.n_head;
     int head_dim = n_embd / n_head;
     
-    // Linear projection to get Q, K, V
-    // c_attn projects to 3 * n_embd (for Q, K, V concatenated)
+    /// linear projection to get Q, K, V
+    /// c_attn projects to 3 * n_embd (for Q, K, V concatenated)
     Tensor qkv({seq_len, n_embd * 3});
     
     for (int i = 0; i < seq_len; ++i) {
         for (int j = 0; j < n_embd * 3; ++j) {
             float sum = c_attn_bias->data[j];
             for (int k = 0; k < n_embd; ++k) {
-                // Note: weights are transposed in PyTorch convention
+                /// weights are transposed in PyTorch convention
                 sum += x.data[i * n_embd + k] * c_attn_weight->data[k * (n_embd * 3) + j];
             }
             qkv.data[i * (n_embd * 3) + j] = sum;
         }
     }
     
-    // Split into Q, K, V
+    /// Split into Q, K, V
     Tensor q({seq_len, n_embd});
     Tensor k({seq_len, n_embd});
     Tensor v({seq_len, n_embd});
@@ -94,7 +94,7 @@ Tensor GPT2Model::attention(const Tensor& x, int layer_idx) {
         }
     }
     
-    // Compute attention scores: Q @ K^T / sqrt(head_dim)
+    /// compute attention: Q @ K^T / sqrt(head_dim)
     Tensor scores({seq_len, seq_len});
     float scale = 1.0f / std::sqrt(static_cast<float>(head_dim));
     
@@ -108,17 +108,17 @@ Tensor GPT2Model::attention(const Tensor& x, int layer_idx) {
         }
     }
     
-    // Apply causal mask (no looking ahead)
+    /// apply causal mask (no looking ahead)
     for (int i = 0; i < seq_len; ++i) {
         for (int j = i + 1; j < seq_len; ++j) {
             scores.data[i * seq_len + j] = -1e10f;  // Large negative value
         }
     }
     
-    // Apply softmax
+    /// apply softmax
     Tensor attn_weights = ops::softmax(scores, -1);
     
-    // Apply attention to values: attn_weights @ V
+    /// apply attention to values: attn_weights @ V
     Tensor attn_output({seq_len, n_embd});
     
     for (int i = 0; i < seq_len; ++i) {
@@ -131,7 +131,7 @@ Tensor GPT2Model::attention(const Tensor& x, int layer_idx) {
         }
     }
     
-    // Output projection
+    /// output projection
     Tensor output({seq_len, n_embd});
     
     for (int i = 0; i < seq_len; ++i) {
@@ -148,7 +148,7 @@ Tensor GPT2Model::attention(const Tensor& x, int layer_idx) {
 }
 
 Tensor GPT2Model::mlp(const Tensor& x, int layer_idx) {
-    // MLP: Linear -> GELU -> Linear
+    /// mlp: linear -> gelu -> linear
     std::string prefix = "transformer.h." + std::to_string(layer_idx) + ".mlp.";
     
     const Tensor* c_fc_weight = get_weight(prefix + "c_fc.weight");
@@ -164,7 +164,7 @@ Tensor GPT2Model::mlp(const Tensor& x, int layer_idx) {
     int n_embd = x.shape[1];
     int n_inner = n_embd * 4;  // GPT-2 uses 4x expansion
     
-    // First linear layer
+    /// first linear layer
     Tensor hidden({seq_len, n_inner});
     
     for (int i = 0; i < seq_len; ++i) {
@@ -177,10 +177,10 @@ Tensor GPT2Model::mlp(const Tensor& x, int layer_idx) {
         }
     }
     
-    // GELU activation
+    /// gelu activation
     hidden = ops::gelu(hidden);
     
-    // Second linear layer
+    /// second linear layer
     Tensor output({seq_len, n_embd});
     
     for (int i = 0; i < seq_len; ++i) {
@@ -208,30 +208,30 @@ Tensor GPT2Model::transformer_block(const Tensor& x, int layer_idx) {
         return x;
     }
     
-    // Layer norm + attention + residual
+    /// layer norm + attention + residual
     Tensor normed1 = ops::layer_norm(x, *ln1_weight, *ln1_bias);
     Tensor attn_out = attention(normed1, layer_idx);
     
-    // Residual connection
+    /// residual connection
     Tensor x2 = ops::add(x, attn_out);
     
-    // Layer norm + MLP + residual
+    /// layer norm + MLP + residual
     Tensor normed2 = ops::layer_norm(x2, *ln2_weight, *ln2_bias);
     Tensor mlp_out = mlp(normed2, layer_idx);
     
-    // Residual connection
+    /// residual connection
     Tensor output = ops::add(x2, mlp_out);
     
     return output;
 }
 
 Tensor GPT2Model::forward(const std::vector<int>& input_ids) {
-    // Get embeddings
+    /// get embeddings
     Tensor x = embedding(input_ids);
     
     std::cout << "Processing through " << config_.n_layer << " transformer layers..." << std::endl;
     
-    // Pass through transformer blocks
+    /// pass through transformer blocks
     for (int i = 0; i < config_.n_layer; ++i) {
         x = transformer_block(x, i);
         if ((i + 1) % 3 == 0) {
@@ -239,7 +239,7 @@ Tensor GPT2Model::forward(const std::vector<int>& input_ids) {
         }
     }
     
-    // Final layer norm
+    /// final layer norm
     const Tensor* ln_f_weight = get_weight("transformer.ln_f.weight");
     const Tensor* ln_f_bias = get_weight("transformer.ln_f.bias");
     
@@ -247,10 +247,10 @@ Tensor GPT2Model::forward(const std::vector<int>& input_ids) {
         x = ops::layer_norm(x, *ln_f_weight, *ln_f_bias);
     }
     
-    // Language model head (project to vocabulary)
+    /// language model head (project to vocabulary)
     const Tensor* lm_head = get_weight("lm_head.weight");
     if (!lm_head) {
-        // In GPT-2, lm_head often shares weights with wte
+        /// in GPT-2, lm_head often shares weights with wte
         lm_head = get_weight("transformer.wte.weight");
     }
     
@@ -263,7 +263,7 @@ Tensor GPT2Model::forward(const std::vector<int>& input_ids) {
     int n_embd = x.shape[1];
     int n_vocab = config_.n_vocab;
     
-    // Only compute logits for the last token
+    /// only compute logits for the last token
     Tensor logits({1, n_vocab});
     
     for (int j = 0; j < n_vocab; ++j) {
@@ -283,10 +283,10 @@ std::vector<int> GPT2Model::generate(const std::vector<int>& input_ids, int max_
     std::mt19937 gen(rd());
     
     for (int i = 0; i < max_new_tokens; ++i) {
-        // Forward pass
+        /// forward pass
         Tensor logits = forward(output_ids);
         
-        // Apply repetition penalty (penalize tokens already in the sequence)
+        /// apply repetition penalty (penalize tokens already in the sequence)
         if (config.repetition_penalty != 1.0f) {
             for (int token : output_ids) {
                 if (token < logits.size()) {
@@ -300,14 +300,14 @@ std::vector<int> GPT2Model::generate(const std::vector<int>& input_ids, int max_
             }
         }
         
-        // Apply temperature
+        /// apply temperature
         if (config.temperature > 0.0f && config.temperature != 1.0f) {
             for (int j = 0; j < logits.size(); ++j) {
                 logits.data[j] /= config.temperature;
             }
         }
         
-        // Convert logits to probabilities using softmax
+        /// convert logits to probabilities using softmax
         std::vector<float> probs(logits.size());
         float max_logit = *std::max_element(logits.data.begin(), logits.data.end());
         float sum = 0.0f;
@@ -322,23 +322,23 @@ std::vector<int> GPT2Model::generate(const std::vector<int>& input_ids, int max_
         int next_token = 0;
         
         if (config.temperature == 0.0f) {
-            // Greedy sampling
+            /// greedy sampling
             next_token = std::max_element(probs.begin(), probs.end()) - probs.begin();
         } else {
-            // Create indices sorted by probability
+            /// create indices sorted by probability
             std::vector<std::pair<float, int>> prob_idx;
             for (int j = 0; j < probs.size(); ++j) {
                 prob_idx.push_back({probs[j], j});
             }
             std::sort(prob_idx.begin(), prob_idx.end(), std::greater<std::pair<float, int>>());
             
-            // Apply top-k filtering
+            // apply top-k filtering
             int k = config.top_k;
             if (k > 0 && k < (int)prob_idx.size()) {
                 prob_idx.resize(k);
             }
             
-            // Apply top-p (nucleus) filtering
+            /// apply top-p (nucleus) filtering
             if (config.top_p < 1.0f) {
                 float cumsum = 0.0f;
                 size_t cutoff = prob_idx.size();
@@ -352,13 +352,13 @@ std::vector<int> GPT2Model::generate(const std::vector<int>& input_ids, int max_
                 prob_idx.resize(cutoff);
             }
             
-            // Renormalize probabilities
+            /// renormalize probabilities
             float prob_sum = 0.0f;
             for (const auto& p : prob_idx) {
                 prob_sum += p.first;
             }
             
-            // Sample from the filtered distribution
+            /// sample from the filtered distribution
             std::uniform_real_distribution<float> dist(0.0f, prob_sum);
             float random_val = dist(gen);
             float cumsum = 0.0f;
@@ -377,7 +377,7 @@ std::vector<int> GPT2Model::generate(const std::vector<int>& input_ids, int max_
         std::cout << "Generated token " << (i + 1) << "/" << max_new_tokens 
                   << " (id: " << next_token << ")" << std::endl;
         
-        // Stop if we hit end of text token (50256 for GPT-2)
+        /// stop if we hit end of text token (50256 for GPT-2)
         if (next_token == 50256) {
             break;
         }

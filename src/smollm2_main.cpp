@@ -91,7 +91,7 @@ Config parse_args(int argc, char* argv[]) {
 
 void run_single_prompt(SmolLM2Model& model, SmolLM2Tokenizer& tokenizer, 
                        const std::string& prompt, const SmolLM2SamplingConfig& sampling_config) {
-    // Apply chat template
+    /// apply chat template
     std::vector<std::pair<std::string, std::string>> messages = {
         {"user", prompt}
     };
@@ -99,7 +99,7 @@ void run_single_prompt(SmolLM2Model& model, SmolLM2Tokenizer& tokenizer,
     
     std::cout << "\n[Input]\n" << formatted << "\n";
     
-    // Tokenize
+    /// tokenize
     auto start_encode = std::chrono::high_resolution_clock::now();
     std::vector<int> input_ids = tokenizer.encode(formatted);
     auto end_encode = std::chrono::high_resolution_clock::now();
@@ -112,7 +112,7 @@ void run_single_prompt(SmolLM2Model& model, SmolLM2Tokenizer& tokenizer,
     if (input_ids.size() > 20) std::cout << "...";
     std::cout << "\n\n";
     
-    // Generate
+    /// generate
     std::cout << "[Generating...]\n";
     auto start_gen = std::chrono::high_resolution_clock::now();
     
@@ -120,10 +120,10 @@ void run_single_prompt(SmolLM2Model& model, SmolLM2Tokenizer& tokenizer,
     
     auto end_gen = std::chrono::high_resolution_clock::now();
     
-    // Decode
+    /// decode
     std::string output = tokenizer.decode(output_ids);
     
-    // Calculate timing
+    /// calculate timing
     auto encode_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_encode - start_encode).count();
     auto gen_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_gen - start_gen).count();
     int new_tokens = output_ids.size() - input_ids.size();
@@ -160,7 +160,7 @@ void run_interactive(SmolLM2Model& model, SmolLM2Tokenizer& tokenizer,
         
         if (input.empty()) continue;
         
-        // Handle commands
+        /// handle commands
         if (input == "/quit" || input == "/exit") {
             std::cout << "Goodbye!\n";
             break;
@@ -178,34 +178,34 @@ void run_interactive(SmolLM2Model& model, SmolLM2Tokenizer& tokenizer,
             continue;
         }
         
-        // Add user message to history
+        /// add user message to history
         history.push_back({"user", input});
         
-        // Apply chat template
+        /// apply chat template
         std::string formatted = tokenizer.apply_chat_template(history, true);
         
-        // Tokenize
+        /// tokenize
         std::vector<int> input_ids = tokenizer.encode(formatted);
         
-        // Generate
+        /// generate
         auto start = std::chrono::high_resolution_clock::now();
         std::vector<int> output_ids = model.generate(input_ids, current_config);
         auto end = std::chrono::high_resolution_clock::now();
         
-        // Decode only the new tokens
+        /// decode only the new tokens
         std::vector<int> new_tokens(output_ids.begin() + input_ids.size(), output_ids.end());
         std::string response = tokenizer.decode(new_tokens);
         
-        // Clean up response (remove trailing special tokens)
+        /// clean up response (remove trailing special tokens)
         size_t end_pos = response.find("<|im_end|>");
         if (end_pos != std::string::npos) {
             response = response.substr(0, end_pos);
         }
         
-        // Add assistant response to history
+        /// add assistant response to history
         history.push_back({"assistant", response});
         
-        // Calculate timing
+        /// calculate timing
         auto gen_time = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
         float tokens_per_sec = (gen_time > 0) ? (new_tokens.size() * 1000.0f / gen_time) : 0;
         
@@ -221,7 +221,7 @@ int main(int argc, char* argv[]) {
     std::cout << "SmolLM2 Inference Engine\n";
     std::cout << "====================================\n\n";
     
-    // Load tokenizer
+    /// load tokenizer
     std::cout << "Loading tokenizer from: " << config.tokenizer_path << "\n";
     SmolLM2Tokenizer tokenizer;
     if (!tokenizer.load(config.tokenizer_path)) {
@@ -233,7 +233,7 @@ int main(int argc, char* argv[]) {
     }
     std::cout << "Tokenizer loaded successfully (vocab size: " << tokenizer.vocab_size() << ")\n\n";
     
-    // Load model weights
+    /// load model weights
     std::cout << "Loading model weights from: " << config.weights_path << "\n";
     ModelLoader loader(config.weights_path);
     if (!loader.load()) {
@@ -243,10 +243,10 @@ int main(int argc, char* argv[]) {
     }
     std::cout << "\n";
     
-    // Initialize model
+    /// initialize model
     SmolLM2Model model(loader);
     
-    // Set up sampling config
+    /// setup sampling config
     SmolLM2SamplingConfig sampling_config;
     sampling_config.max_new_tokens = config.max_tokens;
     sampling_config.temperature = config.temperature;
@@ -259,7 +259,7 @@ int main(int argc, char* argv[]) {
     } else if (!config.prompt.empty()) {
         run_single_prompt(model, tokenizer, config.prompt, sampling_config);
     } else {
-        // Default demo prompt
+        /// default demo prompt
         std::string demo_prompt = "What is the capital of France?";
         std::cout << "No prompt specified, using demo: \"" << demo_prompt << "\"\n";
         run_single_prompt(model, tokenizer, demo_prompt, sampling_config);

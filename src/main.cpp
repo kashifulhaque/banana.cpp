@@ -12,7 +12,7 @@ int main(int argc, char* argv[]) {
     std::cout << "========================================" << std::endl;
     std::cout << std::endl;
     
-    // Load model weights
+    /// load model weights
     std::cout << "Step 1: Loading model weights..." << std::endl;
     ModelLoader model_loader("weights/gpt2_weights.bin");
     if (!model_loader.load()) {
@@ -22,7 +22,7 @@ int main(int argc, char* argv[]) {
     }
     std::cout << std::endl;
     
-    // Initialize tokenizer
+    /// init tokenizer
     std::cout << "Step 2: Loading tokenizer..." << std::endl;
     Tokenizer tokenizer;
     if (!tokenizer.download_and_load()) {
@@ -31,12 +31,12 @@ int main(int argc, char* argv[]) {
     }
     std::cout << std::endl;
     
-    // Initialize GPT-2 model
+    // init GPT-2 model
     std::cout << "Step 3: Initializing GPT-2 model..." << std::endl;
     GPT2Model model(model_loader);
     std::cout << std::endl;
     
-    // Get prompt from command line or use default
+    /// get prompt from command line or use default
     std::string prompt = "Hello, my name is";
     if (argc > 1) {
         prompt = "";
@@ -51,7 +51,7 @@ int main(int argc, char* argv[]) {
     std::cout << "========================================" << std::endl;
     std::cout << std::endl;
     
-    // Encode prompt
+    /// encode prompt
     std::cout << "Step 4: Encoding prompt..." << std::endl;
     std::vector<int> input_ids = tokenizer.encode(prompt);
     
@@ -63,11 +63,11 @@ int main(int argc, char* argv[]) {
     std::cout << "]" << std::endl;
     std::cout << std::endl;
     
-    // Generate text with improved sampling
+    /// generate text with improved sampling
     std::cout << "Step 5: Generating text..." << std::endl;
     int max_new_tokens = 50;
     
-    // Configure sampling parameters for better, more diverse output
+    /// configure sampling parameters for better, more diverse output
     SamplingConfig sampling;
     sampling.temperature = 0.8f;       // Balanced for coherent but diverse text
     sampling.top_k = 50;               // Consider top 50 tokens
@@ -82,7 +82,7 @@ int main(int argc, char* argv[]) {
     std::vector<int> output_ids = model.generate(input_ids, max_new_tokens, sampling);
     std::cout << std::endl;
     
-    // Decode output
+    /// decode output
     std::cout << "Step 6: Decoding output..." << std::endl;
     std::string generated_text = tokenizer.decode(output_ids);
     
