@@ -26,28 +26,78 @@ endif()
 # Include directories
 include_directories(${PROJECT_SOURCE_DIR}/include)
 
-# Generic LLM inference engine sources
-set(LLM_SOURCES
-    src/llm_model.cpp
-    src/model_loader.cpp
-    src/model_registry.cpp
-    src/ops.cpp
-    src/tokenizer.cpp
-    src/weight_downloader.cpp
-    src/main.cpp
+# ============================================================================
+# Source Files - Organized by Module
+# ============================================================================
+
+# Core module
+set(CORE_SOURCES
+    src/core/ops.cpp
 )
 
-# Create generic LLM inference executable
-add_executable(llm_inference ${LLM_SOURCES})
+# Layers module
+set(LAYERS_SOURCES
+    src/layers/attention.cpp
+    src/layers/mlp.cpp
+    src/layers/normalization.cpp
+    src/layers/position_embedding.cpp
+)
+
+# Models module
+set(MODELS_SOURCES
+    src/models/llm_model.cpp
+)
+
+# Tokenizers module
+set(TOKENIZERS_SOURCES
+    src/tokenizers/bpe_tokenizer.cpp
+    src/tokenizers/chat_template.cpp
+    src/tokenizers/tokenizer.cpp
+)
+
+# Registry module
+set(REGISTRY_SOURCES
+    src/registry/model_registry.cpp
+)
+
+# Utils module
+set(UTILS_SOURCES
+    src/utils/model_loader.cpp
+    src/utils/weight_downloader.cpp
+)
+
+# All library sources
+set(LLM_LIB_SOURCES
+    ${CORE_SOURCES}
+    ${LAYERS_SOURCES}
+    ${MODELS_SOURCES}
+    ${TOKENIZERS_SOURCES}
+    ${REGISTRY_SOURCES}
+    ${UTILS_SOURCES}
+)
+
+# ============================================================================
+# Build Configuration
+# ============================================================================
+
+# Create static library for reuse
+add_library(llm_lib STATIC ${LLM_LIB_SOURCES})
+
+# Create main executable
+add_executable(llm_inference src/main.cpp)
+target_link_libraries(llm_inference PRIVATE llm_lib)
 
 # Link Accelerate on macOS for fast BLAS
 if(APPLE)
+    target_compile_definitions(llm_lib PRIVATE ACCELERATE_NEW_LAPACK)
+    target_link_libraries(llm_lib PRIVATE "-framework Accelerate")
     target_compile_definitions(llm_inference PRIVATE ACCELERATE_NEW_LAPACK)
     target_link_libraries(llm_inference PRIVATE "-framework Accelerate")
 endif()
 
 # Compiler flags
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(llm_lib PRIVATE -Wall -Wextra -O3 -march=native)
     target_compile_options(llm_inference PRIVATE -Wall -Wextra -O3 -march=native)
 endif()
 
@@ -68,10 +118,34 @@ endif()
 
 if(OpenMP_CXX_FOUND)
     if(TARGET OpenMP::OpenMP_CXX)
+        target_link_libraries(llm_lib PUBLIC OpenMP::OpenMP_CXX)
         target_link_libraries(llm_inference PUBLIC OpenMP::OpenMP_CXX)
     elseif(OpenMP_omp_LIBRARY)
+        target_compile_options(llm_lib PRIVATE -Xpreprocessor -fopenmp)
         target_compile_options(llm_inference PRIVATE -Xpreprocessor -fopenmp)
+        target_link_libraries(llm_lib PUBLIC ${OpenMP_omp_LIBRARY})
         target_link_libraries(llm_inference PUBLIC ${OpenMP_omp_LIBRARY})
+        target_include_directories(llm_lib PRIVATE ${OPENMP_INCLUDE_DIR})
         target_include_directories(llm_inference PRIVATE ${OPENMP_INCLUDE_DIR})
     endif()
 endif()
+
+# ============================================================================
+# Print Build Summary
+# ============================================================================
+message(STATUS "")
+message(STATUS "LLM Inference Engine Build Configuration")
+message(STATUS "=========================================")
+message(STATUS "C++ Standard: ${CMAKE_CXX_STANDARD}")
+message(STATUS "Build Type: ${CMAKE_BUILD_TYPE}")
+message(STATUS "Compiler: ${CMAKE_CXX_COMPILER_ID}")
+if(APPLE)
+    message(STATUS "macOS Deployment Target: ${CMAKE_OSX_DEPLOYMENT_TARGET}")
+    message(STATUS "Accelerate Framework: Enabled")
+endif()
+if(OpenMP_CXX_FOUND)
+    message(STATUS "OpenMP: Enabled")
+else()
+    message(STATUS "OpenMP: Not Found")
+endif()
+message(STATUS "")

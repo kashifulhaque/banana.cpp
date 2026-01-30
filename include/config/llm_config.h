@@ -1,5 +1,5 @@
-#ifndef LLM_CONFIG_H
-#define LLM_CONFIG_H
+#ifndef CONFIG_LLM_CONFIG_H
+#define CONFIG_LLM_CONFIG_H
 
 #include <string>
 #include <vector>
@@ -129,6 +129,10 @@ struct SamplingConfig {
 /// Predefined configurations for known models
 namespace ModelPresets {
 
+// ============================================================================
+// SmolLM2 Family
+// ============================================================================
+
 inline LLMConfig smollm2_135m() {
   LLMConfig cfg;
   cfg.model_type = "llama";
@@ -192,6 +196,10 @@ inline LLMConfig smollm2_1_7b() {
   return cfg;
 }
 
+// ============================================================================
+// Llama 3.2 Family
+// ============================================================================
+
 inline LLMConfig llama3_2_1b() {
   LLMConfig cfg;
   cfg.model_type = "llama";
@@ -236,6 +244,10 @@ inline LLMConfig llama3_2_3b() {
   return cfg;
 }
 
+// ============================================================================
+// Qwen Family
+// ============================================================================
+
 inline LLMConfig qwen3_0_6b() {
   LLMConfig cfg;
   cfg.model_type = "qwen2";
@@ -243,7 +255,7 @@ inline LLMConfig qwen3_0_6b() {
   cfg.architecture = ModelArchitecture::QWEN;
   cfg.vocab_size = 151936;
   cfg.hidden_size = 1024;
-  cfg.intermediate_size = 3072;  // Actual size from model weights
+  cfg.intermediate_size = 3072;
   cfg.num_hidden_layers = 28;
   cfg.num_attention_heads = 16;
   cfg.num_key_value_heads = 8;
@@ -284,4 +296,4 @@ inline LLMConfig qwen2_5_0_5b() {
 
 } // namespace ModelPresets
 
-#endif // LLM_CONFIG_H
+#endif // CONFIG_LLM_CONFIG_H

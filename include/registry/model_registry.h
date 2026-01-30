@@ -1,8 +1,8 @@
-#ifndef MODEL_REGISTRY_H
-#define MODEL_REGISTRY_H
+#ifndef REGISTRY_MODEL_REGISTRY_H
+#define REGISTRY_MODEL_REGISTRY_H
 
-#include "llm_config.h"
-#include "tokenizer.h"
+#include "config/llm_config.h"
+#include "config/tokenizer_config.h"
 #include <string>
 #include <optional>
 #include <vector>
@@ -62,4 +62,4 @@ namespace KnownModels {
   constexpr const char* QWEN3_0_6B = "Qwen/Qwen3-0.6B";
 }
 
-#endif // MODEL_REGISTRY_H
+#endif // REGISTRY_MODEL_REGISTRY_H

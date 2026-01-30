@@ -1,5 +1,5 @@
-#ifndef WEIGHT_DOWNLOADER_H
-#define WEIGHT_DOWNLOADER_H
+#ifndef UTILS_WEIGHT_DOWNLOADER_H
+#define UTILS_WEIGHT_DOWNLOADER_H
 
 #include <cstdint>
 #include <string>
@@ -43,7 +43,7 @@ struct TensorInfo {
 /// Returns empty string if no token is available
 std::string get_hf_token();
 
-/// Downloads and exports SmolLM2 weights from HuggingFace
+/// Downloads and exports model weights from HuggingFace
 class WeightDownloader {
 public:
   WeightDownloader(const std::string &model_name = "HuggingFaceTB/SmolLM2-360M-Instruct");
@@ -87,4 +87,4 @@ private:
                          const std::string &src_dtype);
 };
 
-#endif // WEIGHT_DOWNLOADER_H
+#endif // UTILS_WEIGHT_DOWNLOADER_H

@@ -1,22 +1,20 @@
-#include "tokenizer.h"
-#include "weight_downloader.h"  // For get_hf_token()
+#include "tokenizers/bpe_tokenizer.h"
 #include <algorithm>
 #include <climits>
-#include <cstdlib>
-#include <cstring>
 #include <fstream>
 #include <iostream>
 #include <regex>
 #include <sstream>
 
-Tokenizer::Tokenizer() {
+namespace tokenizers {
+
+BPETokenizer::BPETokenizer() {
   init_byte_encoder();
 }
 
-Tokenizer::~Tokenizer() {}
+BPETokenizer::~BPETokenizer() {}
 
-// Initialize the byte-to-unicode mapping (same as GPT-2)
-void Tokenizer::init_byte_encoder() {
+void BPETokenizer::init_byte_encoder() {
   std::vector<int> bs;
   for (int i = 33; i <= 126; ++i) bs.push_back(i);
   for (int i = 161; i <= 172; ++i) bs.push_back(i);
@@ -54,107 +52,41 @@ void Tokenizer::init_byte_encoder() {
   }
 }
 
-void Tokenizer::update_special_tokens() {
-  // Update IDs from vocabulary
-  auto find_token = [this](const std::string& token) -> int {
-    auto it = token_to_id_.find(token);
-    return (it != token_to_id_.end()) ? it->second : -1;
-  };
+std::string BPETokenizer::unescape_json(const std::string& s) {
+  std::string result;
+  for (size_t i = 0; i < s.length(); ++i) {
+    if (s[i] == '\\' && i + 5 < s.length() && s[i + 1] == 'u') {
+      std::string hex = s.substr(i + 2, 4);
+      int unicode_point = std::stoi(hex, nullptr, 16);
 
-  bos_token_id_ = find_token(config_.bos_token);
-  eos_token_id_ = find_token(config_.eos_token);
-  pad_token_id_ = find_token(config_.pad_token);
-  unk_token_id_ = find_token(config_.unk_token);
-
-  // Build list of EOS tokens
-  eos_token_ids_.clear();
-  if (eos_token_id_ >= 0) {
-    eos_token_ids_.push_back(eos_token_id_);
-  }
-
-  // Add common EOS variants
-  std::vector<std::string> eos_variants = {
-    "<|im_end|>", "<|eot_id|>", "<|end|>", "</s>", "<|endoftext|>",
-    "<|end_of_turn|>", "<|assistant|>"
-  };
-  for (const auto& variant : eos_variants) {
-    int id = find_token(variant);
-    if (id >= 0 && std::find(eos_token_ids_.begin(), eos_token_ids_.end(), id) == eos_token_ids_.end()) {
-      eos_token_ids_.push_back(id);
+      if (unicode_point < 0x80) {
+        result += static_cast<char>(unicode_point);
+      } else if (unicode_point < 0x800) {
+        result += static_cast<char>(0xC0 | (unicode_point >> 6));
+        result += static_cast<char>(0x80 | (unicode_point & 0x3F));
+      } else if (unicode_point < 0x10000) {
+        result += static_cast<char>(0xE0 | (unicode_point >> 12));
+        result += static_cast<char>(0x80 | ((unicode_point >> 6) & 0x3F));
+        result += static_cast<char>(0x80 | (unicode_point & 0x3F));
+      }
+      i += 5;
+    } else if (s[i] == '\\' && i + 1 < s.length()) {
+      switch (s[i + 1]) {
+        case 'n': result += '\n'; i++; break;
+        case 't': result += '\t'; i++; break;
+        case 'r': result += '\r'; i++; break;
+        case '\\': result += '\\'; i++; break;
+        case '"': result += '"'; i++; break;
+        default: result += s[i]; break;
+      }
+    } else {
+      result += s[i];
     }
   }
+  return result;
 }
 
-bool Tokenizer::is_eos_token(int token_id) const {
-  return std::find(eos_token_ids_.begin(), eos_token_ids_.end(), token_id) != eos_token_ids_.end();
-}
-
-bool Tokenizer::download_and_load(const std::string& model_id, const std::string& save_dir) {
-  // Extract model name from ID for directory
-  std::string model_name = model_id;
-  size_t slash_pos = model_name.find('/');
-  if (slash_pos != std::string::npos) {
-    model_name = model_name.substr(slash_pos + 1);
-  }
-  
-  std::string target_dir = save_dir + "/" + model_name;
-  std::string mkdir_cmd = "mkdir -p " + target_dir;
-  system(mkdir_cmd.c_str());
-
-  std::string vocab_path = target_dir + "/vocab.json";
-  std::string merges_path = target_dir + "/merges.txt";
-
-  std::ifstream vocab_check(vocab_path);
-  std::ifstream merges_check(merges_path);
-
-  if (!vocab_check.good() || !merges_check.good()) {
-    std::cout << "Downloading tokenizer files from " << model_id << "..." << std::endl;
-
-    // Get HF token for authentication
-    std::string hf_token = get_hf_token();
-    std::string auth_header;
-    if (!hf_token.empty()) {
-      auth_header = " -H \"Authorization: Bearer " + hf_token + "\"";
-    }
-
-    std::string base_url = "https://huggingface.co/" + model_id + "/resolve/main/";
-    
-    std::string vocab_cmd = "curl -L --fail" + auth_header + " " + base_url + "vocab.json -o " + vocab_path + " 2>/dev/null";
-    int ret1 = system(vocab_cmd.c_str());
-
-    std::string merges_cmd = "curl -L --fail" + auth_header + " " + base_url + "merges.txt -o " + merges_path + " 2>/dev/null";
-    int ret2 = system(merges_cmd.c_str());
-
-    if (ret1 != 0 || ret2 != 0) {
-      std::cerr << "Failed to download tokenizer files" << std::endl;
-      return false;
-    }
-    std::cout << "Downloaded tokenizer files successfully" << std::endl;
-  }
-
-  return load(target_dir);
-}
-
-bool Tokenizer::load(const std::string& tokenizer_dir) {
-  return load(tokenizer_dir, config_);
-}
-
-bool Tokenizer::load(const std::string& tokenizer_dir, const TokenizerConfig& config) {
-  config_ = config;
-  
-  // First, try to load from tokenizer.json (unified HuggingFace format)
-  std::string tokenizer_json_path = tokenizer_dir + "/tokenizer.json";
-  std::ifstream tokenizer_json_check(tokenizer_json_path);
-  if (tokenizer_json_check.good()) {
-    tokenizer_json_check.close();
-    return load_from_tokenizer_json(tokenizer_json_path);
-  }
-  
-  // Fall back to vocab.json + merges.txt format
-  std::string vocab_path = tokenizer_dir + "/vocab.json";
-  std::string merges_path = tokenizer_dir + "/merges.txt";
-
-  // Load vocabulary
+bool BPETokenizer::load_vocab(const std::string& vocab_path) {
   std::ifstream vocab_file(vocab_path);
   if (!vocab_file.is_open()) {
     std::cerr << "Failed to open vocabulary file: " << vocab_path << std::endl;
@@ -167,41 +99,6 @@ bool Tokenizer::load(const std::string& tokenizer_dir, const TokenizerConfig& co
     content += line;
   }
   vocab_file.close();
-
-  // Helper to unescape JSON unicode sequences
-  auto unescape_json = [](const std::string& s) -> std::string {
-    std::string result;
-    for (size_t i = 0; i < s.length(); ++i) {
-      if (s[i] == '\\' && i + 5 < s.length() && s[i + 1] == 'u') {
-        std::string hex = s.substr(i + 2, 4);
-        int unicode_point = std::stoi(hex, nullptr, 16);
-
-        if (unicode_point < 0x80) {
-          result += static_cast<char>(unicode_point);
-        } else if (unicode_point < 0x800) {
-          result += static_cast<char>(0xC0 | (unicode_point >> 6));
-          result += static_cast<char>(0x80 | (unicode_point & 0x3F));
-        } else if (unicode_point < 0x10000) {
-          result += static_cast<char>(0xE0 | (unicode_point >> 12));
-          result += static_cast<char>(0x80 | ((unicode_point >> 6) & 0x3F));
-          result += static_cast<char>(0x80 | (unicode_point & 0x3F));
-        }
-        i += 5;
-      } else if (s[i] == '\\' && i + 1 < s.length()) {
-        switch (s[i + 1]) {
-          case 'n': result += '\n'; i++; break;
-          case 't': result += '\t'; i++; break;
-          case 'r': result += '\r'; i++; break;
-          case '\\': result += '\\'; i++; break;
-          case '"': result += '"'; i++; break;
-          default: result += s[i]; break;
-        }
-      } else {
-        result += s[i];
-      }
-    }
-    return result;
-  };
 
   // Parse JSON vocabulary
   size_t pos = 0;
@@ -242,15 +139,19 @@ bool Tokenizer::load(const std::string& tokenizer_dir, const TokenizerConfig& co
     pos = num_end;
   }
 
-  std::cout << "Loaded vocabulary with " << token_to_id_.size() << " tokens" << std::endl;
+  vocab_size_ = token_to_id_.size();
+  std::cout << "Loaded vocabulary with " << vocab_size_ << " tokens" << std::endl;
+  return true;
+}
 
-  // Load BPE merges
+bool BPETokenizer::load_merges(const std::string& merges_path) {
   std::ifstream merges_file(merges_path);
   if (!merges_file.is_open()) {
     std::cerr << "Failed to open merges file: " << merges_path << std::endl;
     return false;
   }
 
+  std::string line;
   int rank = 0;
   while (std::getline(merges_file, line)) {
     if (line.empty() || line[0] == '#') continue;
@@ -265,14 +166,10 @@ bool Tokenizer::load(const std::string& tokenizer_dir, const TokenizerConfig& co
   merges_file.close();
 
   std::cout << "Loaded " << bpe_ranks_.size() << " BPE merges" << std::endl;
-
-  vocab_size_ = token_to_id_.size();
-  update_special_tokens();
-  
   return true;
 }
 
-bool Tokenizer::load_from_tokenizer_json(const std::string& json_path) {
+bool BPETokenizer::load_from_tokenizer_json(const std::string& json_path) {
   std::cout << "Loading tokenizer from: " << json_path << std::endl;
   
   std::ifstream file(json_path);
@@ -281,44 +178,9 @@ bool Tokenizer::load_from_tokenizer_json(const std::string& json_path) {
     return false;
   }
 
-  // Read entire file
   std::string content((std::istreambuf_iterator<char>(file)),
                        std::istreambuf_iterator<char>());
   file.close();
-
-  // Helper to unescape JSON unicode sequences
-  auto unescape_json = [](const std::string& s) -> std::string {
-    std::string result;
-    for (size_t i = 0; i < s.length(); ++i) {
-      if (s[i] == '\\' && i + 5 < s.length() && s[i + 1] == 'u') {
-        std::string hex = s.substr(i + 2, 4);
-        int unicode_point = std::stoi(hex, nullptr, 16);
-        if (unicode_point < 0x80) {
-          result += static_cast<char>(unicode_point);
-        } else if (unicode_point < 0x800) {
-          result += static_cast<char>(0xC0 | (unicode_point >> 6));
-          result += static_cast<char>(0x80 | (unicode_point & 0x3F));
-        } else if (unicode_point < 0x10000) {
-          result += static_cast<char>(0xE0 | (unicode_point >> 12));
-          result += static_cast<char>(0x80 | ((unicode_point >> 6) & 0x3F));
-          result += static_cast<char>(0x80 | (unicode_point & 0x3F));
-        }
-        i += 5;
-      } else if (s[i] == '\\' && i + 1 < s.length()) {
-        switch (s[i + 1]) {
-          case 'n': result += '\n'; i++; break;
-          case 't': result += '\t'; i++; break;
-          case 'r': result += '\r'; i++; break;
-          case '\\': result += '\\'; i++; break;
-          case '"': result += '"'; i++; break;
-          default: result += s[i]; break;
-        }
-      } else {
-        result += s[i];
-      }
-    }
-    return result;
-  };
 
   // Find "model" section and then "vocab" within it
   size_t model_pos = content.find("\"model\"");
@@ -341,7 +203,7 @@ bool Tokenizer::load_from_tokenizer_json(const std::string& json_path) {
     return false;
   }
 
-  // Find matching closing brace (properly handling strings)
+  // Find matching closing brace
   int brace_count = 1;
   size_t vocab_end = vocab_start + 1;
   bool in_string = false;
@@ -349,7 +211,7 @@ bool Tokenizer::load_from_tokenizer_json(const std::string& json_path) {
     char c = content[vocab_end];
     if (in_string) {
       if (c == '\\' && vocab_end + 1 < content.size()) {
-        vocab_end += 2;  // Skip escaped character
+        vocab_end += 2;
         continue;
       } else if (c == '"') {
         in_string = false;
@@ -368,20 +230,18 @@ bool Tokenizer::load_from_tokenizer_json(const std::string& json_path) {
 
   std::string vocab_content = content.substr(vocab_start, vocab_end - vocab_start);
 
-  // Parse vocab: {"token": id, ...} - properly handle escaped characters in tokens
+  // Parse vocab
   size_t pos = 0;
   while (pos < vocab_content.size()) {
-    // Find opening quote
     pos = vocab_content.find("\"", pos);
     if (pos == std::string::npos) break;
     
     size_t token_start = pos + 1;
-    
-    // Find closing quote, handling escapes
     size_t token_end = token_start;
+    
     while (token_end < vocab_content.size()) {
       if (vocab_content[token_end] == '\\' && token_end + 1 < vocab_content.size()) {
-        token_end += 2;  // Skip escaped character
+        token_end += 2;
         continue;
       }
       if (vocab_content[token_end] == '"') {
@@ -412,18 +272,15 @@ bool Tokenizer::load_from_tokenizer_json(const std::string& json_path) {
     std::string unescaped = unescape_json(token);
     token_to_id_[unescaped] = id;
     id_to_token_[id] = unescaped;
-
-    pos = num_end;
   }
 
   std::cout << "Loaded vocabulary with " << token_to_id_.size() << " tokens" << std::endl;
 
-  // Parse added_tokens section for special tokens
+  // Parse added_tokens section
   size_t added_tokens_pos = content.find("\"added_tokens\"");
   if (added_tokens_pos != std::string::npos) {
     size_t arr_start = content.find("[", added_tokens_pos);
     if (arr_start != std::string::npos) {
-      // Find matching ]
       int bracket_count = 1;
       size_t arr_end = arr_start + 1;
       while (arr_end < content.size() && bracket_count > 0) {
@@ -434,7 +291,6 @@ bool Tokenizer::load_from_tokenizer_json(const std::string& json_path) {
       
       std::string added_tokens_content = content.substr(arr_start, arr_end - arr_start);
       
-      // Parse each added token object
       size_t obj_pos = 0;
       while ((obj_pos = added_tokens_content.find("{", obj_pos)) != std::string::npos) {
         size_t obj_end = added_tokens_content.find("}", obj_pos);
@@ -442,7 +298,6 @@ bool Tokenizer::load_from_tokenizer_json(const std::string& json_path) {
         
         std::string obj = added_tokens_content.substr(obj_pos, obj_end - obj_pos + 1);
         
-        // Extract id
         size_t id_pos = obj.find("\"id\"");
         int token_id = -1;
         if (id_pos != std::string::npos) {
@@ -453,7 +308,6 @@ bool Tokenizer::load_from_tokenizer_json(const std::string& json_path) {
           }
         }
         
-        // Extract content
         size_t content_pos = obj.find("\"content\"");
         std::string token_content;
         if (content_pos != std::string::npos) {
@@ -482,12 +336,11 @@ bool Tokenizer::load_from_tokenizer_json(const std::string& json_path) {
     std::cout << "Loaded " << added_tokens_.size() << " special tokens" << std::endl;
   }
 
-  // Find and parse merges
+  // Parse merges
   size_t merges_pos = content.find("\"merges\"", model_pos);
   if (merges_pos != std::string::npos) {
     size_t arr_start = content.find("[", merges_pos);
     if (arr_start != std::string::npos) {
-      // Find matching ] properly (handling strings inside)
       int bracket_count = 1;
       size_t arr_end = arr_start + 1;
       bool in_str = false;
@@ -524,7 +377,6 @@ bool Tokenizer::load_from_tokenizer_json(const std::string& json_path) {
         size_t str_start = str_pos + 1;
         size_t str_end = str_start;
         
-        // Find closing quote
         while (str_end < merges_content.size()) {
           if (merges_content[str_end] == '\\' && str_end + 1 < merges_content.size()) {
             str_end += 2;
@@ -541,7 +393,6 @@ bool Tokenizer::load_from_tokenizer_json(const std::string& json_path) {
         std::string merge = merges_content.substr(str_start, str_end - str_start);
         str_pos = str_end + 1;
         
-        // Split by space
         size_t space_pos = merge.find(' ');
         if (space_pos != std::string::npos) {
           std::string first = unescape_json(merge.substr(0, space_pos));
@@ -555,13 +406,11 @@ bool Tokenizer::load_from_tokenizer_json(const std::string& json_path) {
   }
 
   vocab_size_ = token_to_id_.size();
-  update_special_tokens();
-  
-  std::cout << "Tokenizer loaded successfully (vocab size: " << vocab_size_ << ")" << std::endl;
   return true;
 }
 
-std::set<std::pair<std::string, std::string>> Tokenizer::get_pairs(const std::vector<std::string>& word) {
+std::set<std::pair<std::string, std::string>> BPETokenizer::get_pairs(
+    const std::vector<std::string>& word) const {
   std::set<std::pair<std::string, std::string>> pairs;
   for (size_t i = 1; i < word.size(); ++i) {
     pairs.insert({word[i - 1], word[i]});
@@ -569,7 +418,7 @@ std::set<std::pair<std::string, std::string>> Tokenizer::get_pairs(const std::ve
   return pairs;
 }
 
-std::vector<std::string> Tokenizer::bpe(const std::string& token) {
+std::vector<std::string> BPETokenizer::bpe(const std::string& token) const {
   std::vector<std::string> word;
   size_t i = 0;
   while (i < token.size()) {
@@ -625,9 +474,10 @@ std::vector<std::string> Tokenizer::bpe(const std::string& token) {
   return word;
 }
 
-std::vector<std::string> Tokenizer::split_to_words(const std::string& text) {
+std::vector<std::string> BPETokenizer::split_to_words(const std::string& text) const {
   std::vector<std::string> words;
-  std::regex pattern(R"('s|'t|'re|'ve|'m|'ll|'d| ?[a-zA-Z]+| ?[0-9]+| ?[^\s\w]+|\s+)", std::regex::icase);
+  std::regex pattern(R"('s|'t|'re|'ve|'m|'ll|'d| ?[a-zA-Z]+| ?[0-9]+| ?[^\s\w]+|\s+)", 
+                     std::regex::icase);
 
   std::sregex_iterator it(text.begin(), text.end(), pattern);
   std::sregex_iterator end;
@@ -640,12 +490,11 @@ std::vector<std::string> Tokenizer::split_to_words(const std::string& text) {
   return words;
 }
 
-std::vector<int> Tokenizer::encode(const std::string& text) {
+std::vector<int> BPETokenizer::encode(const std::string& text) const {
   std::vector<int> tokens;
 
-  // Collect all special tokens from added_tokens_
+  // Collect special tokens
   std::vector<std::string> special_tokens(added_tokens_.begin(), added_tokens_.end());
-  // Sort by length descending to match longer tokens first
   std::sort(special_tokens.begin(), special_tokens.end(),
             [](const std::string& a, const std::string& b) { return a.size() > b.size(); });
 
@@ -716,7 +565,7 @@ std::vector<int> Tokenizer::encode(const std::string& text) {
   return tokens;
 }
 
-std::string Tokenizer::decode(const std::vector<int>& tokens) {
+std::string BPETokenizer::decode(const std::vector<int>& tokens) const {
   std::string text;
 
   for (int token_id : tokens) {
@@ -750,136 +599,24 @@ std::string Tokenizer::decode(const std::vector<int>& tokens) {
   return result;
 }
 
-// ============================================================================
-// Chat Templates
-// ============================================================================
-
-std::string Tokenizer::apply_chat_template(
-    const std::vector<std::pair<std::string, std::string>>& messages,
-    bool add_generation_prompt) {
-  
-  switch (config_.chat_template) {
-    case ChatTemplateType::CHATML:
-      return apply_chatml(messages, add_generation_prompt);
-    case ChatTemplateType::LLAMA3:
-      return apply_llama3(messages, add_generation_prompt);
-    case ChatTemplateType::LLAMA2:
-      return apply_llama2(messages, add_generation_prompt);
-    case ChatTemplateType::MISTRAL:
-      return apply_mistral(messages, add_generation_prompt);
-    default:
-      // No template, just concatenate
-      std::string result;
-      for (const auto& msg : messages) {
-        result += msg.second + "\n";
-      }
-      return result;
-  }
+int BPETokenizer::get_token_id(const std::string& token) const {
+  auto it = token_to_id_.find(token);
+  return (it != token_to_id_.end()) ? it->second : -1;
 }
 
-std::string Tokenizer::apply_chatml(
-    const std::vector<std::pair<std::string, std::string>>& messages,
-    bool add_gen_prompt) {
-  
-  std::string result;
-
-  // Add default system message if not present
-  bool has_system = !messages.empty() && messages[0].first == "system";
-  if (!has_system && !config_.default_system_prompt.empty()) {
-    result = "<|im_start|>system\n" + config_.default_system_prompt + "<|im_end|>\n";
-  }
-
-  for (const auto& msg : messages) {
-    result += "<|im_start|>" + msg.first + "\n" + msg.second + "<|im_end|>\n";
-  }
-
-  if (add_gen_prompt) {
-    result += "<|im_start|>assistant\n";
-  }
-
-  return result;
+std::string BPETokenizer::get_token(int id) const {
+  auto it = id_to_token_.find(id);
+  return (it != id_to_token_.end()) ? it->second : "";
 }
 
-std::string Tokenizer::apply_llama3(
-    const std::vector<std::pair<std::string, std::string>>& messages,
-    bool add_gen_prompt) {
-  
-  std::string result = "<|begin_of_text|>";
-
-  // Add default system message if not present
-  bool has_system = !messages.empty() && messages[0].first == "system";
-  if (!has_system && !config_.default_system_prompt.empty()) {
-    result += "<|start_header_id|>system<|end_header_id|>\n\n";
-    result += config_.default_system_prompt + "<|eot_id|>";
-  }
-
-  for (const auto& msg : messages) {
-    result += "<|start_header_id|>" + msg.first + "<|end_header_id|>\n\n";
-    result += msg.second + "<|eot_id|>";
-  }
-
-  if (add_gen_prompt) {
-    result += "<|start_header_id|>assistant<|end_header_id|>\n\n";
-  }
-
-  return result;
+bool BPETokenizer::is_special_token(const std::string& token) const {
+  return added_tokens_.find(token) != added_tokens_.end();
 }
 
-std::string Tokenizer::apply_llama2(
-    const std::vector<std::pair<std::string, std::string>>& messages,
-    bool add_gen_prompt) {
-  
-  std::string result = "<s>";
-  std::string system_msg;
-
-  // Extract system message
-  auto it = messages.begin();
-  if (it != messages.end() && it->first == "system") {
-    system_msg = it->second;
-    ++it;
-  } else if (!config_.default_system_prompt.empty()) {
-    system_msg = config_.default_system_prompt;
-  }
-
-  bool first = true;
-  while (it != messages.end()) {
-    if (it->first == "user") {
-      result += "[INST] ";
-      if (first && !system_msg.empty()) {
-        result += "<<SYS>>\n" + system_msg + "\n<</SYS>>\n\n";
-        first = false;
-      }
-      result += it->second + " [/INST]";
-    } else if (it->first == "assistant") {
-      result += " " + it->second + " </s><s>";
-    }
-    ++it;
-  }
-
-  if (add_gen_prompt) {
-    result += "[INST] ";
-  }
-
-  return result;
+void BPETokenizer::add_special_token(const std::string& token, int id) {
+  token_to_id_[token] = id;
+  id_to_token_[id] = token;
+  added_tokens_.insert(token);
 }
 
-std::string Tokenizer::apply_mistral(
-    const std::vector<std::pair<std::string, std::string>>& messages,
-    bool add_gen_prompt) {
-  
-  std::string result = "<s>";
-
-  for (const auto& msg : messages) {
-    if (msg.first == "user") {
-      result += "[INST] " + msg.second + " [/INST]";
-    } else if (msg.first == "assistant") {
-      result += msg.second + "</s> ";
-    }
-  }
-
-  if (add_gen_prompt) {
-    // Mistral expects next turn to start with [INST]
-  }
-
-  return result;
-}
+} // namespace tokenizers

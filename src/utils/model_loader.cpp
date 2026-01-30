@@ -1,4 +1,4 @@
-#include "model_loader.h"
+#include "utils/model_loader.h"
 #include <fstream>
 #include <iostream>
 

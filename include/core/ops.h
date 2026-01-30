@@ -1,20 +1,22 @@
-#ifndef OPS_H
-#define OPS_H
+#ifndef CORE_OPS_H
+#define CORE_OPS_H
 
-#include "tensor.h"
+#include "core/tensor.h"
 
 namespace ops {
-/// matrix ops
+
+/// Matrix multiplication operations
 Tensor matmul(const Tensor &a, const Tensor &b);
 Tensor matmul_ex(const Tensor &a, const Tensor &b, bool transpose_a, bool transpose_b);
 Tensor add(const Tensor &a, const Tensor &b);
 
-/// activation functions
+/// Activation functions
 Tensor gelu(const Tensor &x);
 Tensor softmax(const Tensor &x, int dim = -1);
 
-/// layer norm
+/// Layer normalization
 Tensor layer_norm(const Tensor &x, const Tensor &gamma, const Tensor &beta);
+
 } // namespace ops
 
-#endif // OPS_H
+#endif // CORE_OPS_H

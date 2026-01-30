@@ -1,4 +1,4 @@
-#include "model_registry.h"
+#include "registry/model_registry.h"
 #include <fstream>
 #include <iostream>
 #include <regex>
@@ -163,7 +163,6 @@ std::optional<LLMConfig> ModelRegistry::parse_config_json(const std::string& con
   // Bias settings (important for Qwen)
   config.use_qkv_bias = extract_bool(json, "attention_bias", false);
   if (!config.use_qkv_bias) {
-    // Qwen uses add_qkv_bias
     config.use_qkv_bias = extract_bool(json, "add_qkv_bias", false);
   }
   
@@ -205,9 +204,7 @@ TokenizerConfig ModelRegistry::infer_tokenizer_config(const LLMConfig& config) {
                  config.bos_token_id > 100000) {
         tok_config = TokenizerPresets::llama3();
       } else {
-        tok_config.chat_template = ChatTemplateType::LLAMA2;
-        tok_config.bos_token = "<s>";
-        tok_config.eos_token = "</s>";
+        tok_config = TokenizerPresets::llama2();
       }
       break;
       
@@ -251,8 +248,6 @@ std::optional<ModelInfo> ModelRegistry::detect_from_model_id(const std::string& 
     return known;
   }
   
-  // Otherwise, would need to download config.json from HuggingFace
-  // For now, return nullopt
   std::cerr << "Unknown model: " << model_id << std::endl;
   std::cerr << "Please provide a local path with config.json" << std::endl;
   return std::nullopt;

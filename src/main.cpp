@@ -2,7 +2,7 @@
  * Generic LLM Inference Engine
  * 
  * A pure C++ implementation supporting multiple small language models:
- * - SmolLM, SmolLM2, SmolLM3
+ * - SmolLM2 (135M, 360M, 1.7B)
  * - Llama 3.2 (1B, 3B)
  * - Qwen 2.5, Qwen 3
  * 
@@ -29,12 +29,12 @@
 #include <string>
 #include <vector>
 
-#include "llm_config.h"
-#include "llm_model.h"
-#include "model_loader.h"
-#include "model_registry.h"
-#include "tokenizer.h"
-#include "weight_downloader.h"
+#include "config/llm_config.h"
+#include "models/llm_model.h"
+#include "utils/model_loader.h"
+#include "registry/model_registry.h"
+#include "tokenizers/tokenizer.h"
+#include "utils/weight_downloader.h"
 
 void print_usage(const char* program_name) {
   std::cout << "LLM Inference Engine\n";
@@ -143,8 +143,8 @@ Config parse_args(int argc, char* argv[]) {
   return config;
 }
 
-void run_single_prompt(LLMModel& model, Tokenizer& tokenizer, const std::string& prompt,
-                       const SamplingConfig& sampling_config) {
+void run_single_prompt(models::LLMModel& model, tokenizers::Tokenizer& tokenizer, 
+                       const std::string& prompt, const SamplingConfig& sampling_config) {
   // Apply chat template
   std::vector<std::pair<std::string, std::string>> messages = {{"user", prompt}};
   std::string formatted = tokenizer.apply_chat_template(messages, true);
@@ -198,7 +198,7 @@ void run_single_prompt(LLMModel& model, Tokenizer& tokenizer, const std::string&
   std::cout << "  Speed: " << tokens_per_sec << " tokens/sec\n";
 }
 
-void run_interactive(LLMModel& model, Tokenizer& tokenizer, 
+void run_interactive(models::LLMModel& model, tokenizers::Tokenizer& tokenizer, 
                      const SamplingConfig& sampling_config,
                      const std::string& model_name) {
   std::cout << "\n====================================\n";
@@ -258,7 +258,6 @@ void run_interactive(LLMModel& model, Tokenizer& tokenizer,
     std::string response = tokenizer.decode(new_tokens);
 
     // Clean up response (remove trailing special tokens)
-    // Handle multiple EOS token formats
     std::vector<std::string> eos_markers = {
       "<|im_end|>", "<|eot_id|>", "</s>", "<|end|>", "<|endoftext|>"
     };
@@ -318,7 +317,6 @@ int main(int argc, char* argv[]) {
 
   // Set default paths if not specified
   if (config.weights_path.empty()) {
-    // Extract model name for default path
     std::string model_id = model_info->model_id;
     size_t slash = model_id.find('/');
     std::string model_dir = (slash != std::string::npos) ? model_id.substr(slash + 1) : model_id;
@@ -369,7 +367,7 @@ int main(int argc, char* argv[]) {
 
   // Load tokenizer
   std::cout << "Loading tokenizer from: " << config.tokenizer_path << "\n";
-  Tokenizer tokenizer;
+  tokenizers::Tokenizer tokenizer;
   tokenizer.set_config(model_info->tokenizer_config);
   
   if (!tokenizer.load(config.tokenizer_path)) {
@@ -382,12 +380,11 @@ int main(int argc, char* argv[]) {
   std::cout << "Tokenizer loaded successfully (vocab size: " << tokenizer.vocab_size() << ")\n\n";
 
   // Load model weights
-  // Try multiple possible weight file locations
   std::vector<std::string> weight_candidates = {
     config.weights_path + "/model.bin",
     config.weights_path + "/smollm2_weights.bin",
     config.weights_path + "/weights.bin",
-    config.weights_path  // In case path is already the file
+    config.weights_path
   };
   
   std::string weights_file;
@@ -418,7 +415,7 @@ int main(int argc, char* argv[]) {
   std::cout << "\n";
 
   // Initialize model with detected config
-  auto model = create_model(loader, model_info->config);
+  auto model = models::create_model(loader, model_info->config);
 
   // Setup sampling config
   SamplingConfig sampling_config;

@@ -1,4 +1,4 @@
-#include "weight_downloader.h"
+#include "utils/weight_downloader.h"
 #include <cmath>
 #include <cstring>
 #include <fstream>
@@ -128,19 +128,15 @@ uint16_t float_to_fp16(float value) {
   uint16_t f16;
 
   if (exp > 15) {
-    // Overflow to infinity
     f16 = (sign << 15) | 0x7C00;
   } else if (exp < -14) {
-    // Underflow to zero or denormal
     if (exp < -24) {
       f16 = (sign << 15);
     } else {
-      // Denormalized
       mantissa = (mantissa | 0x800000) >> (-exp - 14 + 13);
       f16 = (sign << 15) | (mantissa & 0x3FF);
     }
   } else {
-    // Normalized
     f16 = (sign << 15) | ((exp + 15) << 10) | (mantissa >> 13);
   }
 
@@ -156,10 +152,8 @@ float fp16_to_float(uint16_t value) {
 
   if (exp == 0) {
     if (mantissa == 0) {
-      // Zero
       f32 = sign << 31;
     } else {
-      // Denormalized -> normalized float32
       exp = 1;
       while ((mantissa & 0x400) == 0) {
         mantissa <<= 1;
@@ -169,10 +163,8 @@ float fp16_to_float(uint16_t value) {
       f32 = (sign << 31) | ((exp + 127 - 15) << 23) | (mantissa << 13);
     }
   } else if (exp == 31) {
-    // Inf or NaN
     f32 = (sign << 31) | 0x7F800000 | (mantissa << 13);
   } else {
-    // Normalized
     f32 = (sign << 31) | ((exp + 127 - 15) << 23) | (mantissa << 13);
   }
 
@@ -184,8 +176,7 @@ float fp16_to_float(uint16_t value) {
 uint16_t float_to_bf16(float value) {
   uint32_t f32;
   std::memcpy(&f32, &value, sizeof(float));
-  // BF16 is simply the upper 16 bits of float32 (with rounding)
-  uint32_t rounding = 0x00008000; // round to nearest even
+  uint32_t rounding = 0x00008000;
   f32 += rounding;
   return static_cast<uint16_t>(f32 >> 16);
 }
@@ -209,9 +200,20 @@ std::string WeightDownloader::get_hf_file_url(const std::string &filename) {
 }
 
 bool WeightDownloader::weights_exist(const std::string &output_dir) {
-  std::string weights_path = output_dir + "/smollm2_weights.bin";
+  // Check for various weight file names
+  std::vector<std::string> weight_files = {
+    output_dir + "/model.bin",
+    output_dir + "/smollm2_weights.bin",
+    output_dir + "/weights.bin"
+  };
+  
   struct stat buffer;
-  return (stat(weights_path.c_str(), &buffer) == 0);
+  for (const auto& path : weight_files) {
+    if (stat(path.c_str(), &buffer) == 0) {
+      return true;
+    }
+  }
+  return false;
 }
 
 bool WeightDownloader::download_file(const std::string &url,
@@ -238,7 +240,6 @@ bool WeightDownloader::download_file_with_progress(const std::string &url,
 }
 
 bool WeightDownloader::download_tokenizer(const std::string &output_dir) {
-  // Create output directory
   std::string mkdir_cmd = "mkdir -p \"" + output_dir + "\"";
   system(mkdir_cmd.c_str());
 
@@ -248,7 +249,8 @@ bool WeightDownloader::download_tokenizer(const std::string &output_dir) {
       "tokenizer.json",
       "tokenizer_config.json",
       "special_tokens_map.json",
-      "chat_template.jinja"
+      "chat_template.jinja",
+      "config.json"
   };
 
   std::cout << "Downloading tokenizer files...\n";
@@ -257,7 +259,6 @@ bool WeightDownloader::download_tokenizer(const std::string &output_dir) {
     std::string url = get_hf_file_url(filename);
     std::string output_path = output_dir + "/" + filename;
 
-    // Check if file already exists
     struct stat buffer;
     if (stat(output_path.c_str(), &buffer) == 0) {
       std::cout << "  " << filename << " (already exists)\n";
@@ -266,7 +267,6 @@ bool WeightDownloader::download_tokenizer(const std::string &output_dir) {
 
     std::cout << "  Downloading " << filename << "...\n";
     if (!download_file(url, output_path)) {
-      // Some files are optional (e.g., chat_template.jinja might not exist)
       if (filename != "chat_template.jinja") {
         std::cerr << "  Warning: Failed to download " << filename << "\n";
       }
@@ -288,22 +288,16 @@ bool WeightDownloader::parse_safetensors_header(
     return false;
   }
 
-  // Read header size (8 bytes, little-endian uint64)
   uint64_t header_len;
   file.read(reinterpret_cast<char *>(&header_len), 8);
-  header_size = static_cast<int64_t>(header_len) + 8; // +8 for the size field itself
+  header_size = static_cast<int64_t>(header_len) + 8;
 
-  // Read header JSON
   std::string header_json(header_len, '\0');
   file.read(&header_json[0], header_len);
   file.close();
 
-  // Simple JSON parsing for safetensors header
-  // Format: {"tensor_name": {"dtype": "F16", "shape": [dim1, dim2], "data_offsets": [start, end]}, ...}
-
   size_t pos = 0;
   while ((pos = header_json.find("\"", pos)) != std::string::npos) {
-    // Find tensor name
     size_t name_start = pos + 1;
     size_t name_end = header_json.find("\"", name_start);
     if (name_end == std::string::npos) break;
@@ -311,9 +305,7 @@ bool WeightDownloader::parse_safetensors_header(
     std::string tensor_name = header_json.substr(name_start, name_end - name_start);
     pos = name_end + 1;
 
-    // Skip "__metadata__"
     if (tensor_name == "__metadata__") {
-      // Skip to next tensor
       size_t brace_pos = header_json.find("{", pos);
       if (brace_pos != std::string::npos) {
         int brace_count = 1;
@@ -327,11 +319,9 @@ bool WeightDownloader::parse_safetensors_header(
       continue;
     }
 
-    // Find the opening brace for this tensor's metadata
     size_t brace_start = header_json.find("{", pos);
     if (brace_start == std::string::npos) break;
 
-    // Find matching closing brace
     int brace_count = 1;
     size_t brace_end = brace_start + 1;
     while (brace_end < header_json.size() && brace_count > 0) {
@@ -346,7 +336,6 @@ bool WeightDownloader::parse_safetensors_header(
     TensorInfo info;
     info.name = tensor_name;
 
-    // Parse dtype
     size_t dtype_pos = tensor_meta.find("\"dtype\"");
     if (dtype_pos != std::string::npos) {
       size_t dtype_val_start = tensor_meta.find("\"", dtype_pos + 7);
@@ -357,7 +346,6 @@ bool WeightDownloader::parse_safetensors_header(
       }
     }
 
-    // Parse shape
     size_t shape_pos = tensor_meta.find("\"shape\"");
     if (shape_pos != std::string::npos) {
       size_t shape_start = tensor_meta.find("[", shape_pos);
@@ -367,7 +355,6 @@ bool WeightDownloader::parse_safetensors_header(
         std::stringstream ss(shape_str);
         std::string dim_str;
         while (std::getline(ss, dim_str, ',')) {
-          // Trim whitespace
           size_t start = dim_str.find_first_not_of(" \t");
           size_t end = dim_str.find_last_not_of(" \t");
           if (start != std::string::npos) {
@@ -377,7 +364,6 @@ bool WeightDownloader::parse_safetensors_header(
       }
     }
 
-    // Parse data_offsets
     size_t offsets_pos = tensor_meta.find("\"data_offsets\"");
     if (offsets_pos != std::string::npos) {
       size_t offset_start = tensor_meta.find("[", offsets_pos);
@@ -411,7 +397,7 @@ void WeightDownloader::write_tensor_data(std::ofstream &out, const float *data,
     }
     out.write(reinterpret_cast<const char *>(fp16_data.data()),
               count * sizeof(uint16_t));
-  } else { // BF16
+  } else {
     std::vector<uint16_t> bf16_data(count);
     for (size_t i = 0; i < count; ++i) {
       bf16_data[i] = fp16_utils::float_to_bf16(data[i]);
@@ -424,12 +410,11 @@ void WeightDownloader::write_tensor_data(std::ofstream &out, const float *data,
 void WeightDownloader::write_tensor_data(std::ofstream &out, const uint16_t *data,
                                           size_t count, const std::string &src_dtype) {
   if (precision_ == WeightPrecision::FP32) {
-    // Convert to fp32
     std::vector<float> fp32_data(count);
     for (size_t i = 0; i < count; ++i) {
       if (src_dtype == "BF16") {
         fp32_data[i] = fp16_utils::bf16_to_float(data[i]);
-      } else { // F16
+      } else {
         fp32_data[i] = fp16_utils::fp16_to_float(data[i]);
       }
     }
@@ -437,9 +422,8 @@ void WeightDownloader::write_tensor_data(std::ofstream &out, const uint16_t *dat
               count * sizeof(float));
   } else if (precision_ == WeightPrecision::FP16) {
     if (src_dtype == "F16") {
-      // Direct copy
       out.write(reinterpret_cast<const char *>(data), count * sizeof(uint16_t));
-    } else { // BF16 -> FP16
+    } else {
       std::vector<uint16_t> fp16_data(count);
       for (size_t i = 0; i < count; ++i) {
         float val = fp16_utils::bf16_to_float(data[i]);
@@ -448,11 +432,10 @@ void WeightDownloader::write_tensor_data(std::ofstream &out, const uint16_t *dat
       out.write(reinterpret_cast<const char *>(fp16_data.data()),
                 count * sizeof(uint16_t));
     }
-  } else { // BF16
+  } else {
     if (src_dtype == "BF16") {
-      // Direct copy
       out.write(reinterpret_cast<const char *>(data), count * sizeof(uint16_t));
-    } else { // F16 -> BF16
+    } else {
       std::vector<uint16_t> bf16_data(count);
       for (size_t i = 0; i < count; ++i) {
         float val = fp16_utils::fp16_to_float(data[i]);
@@ -477,30 +460,26 @@ bool WeightDownloader::convert_safetensors_to_binary(
 
   std::cout << "Found " << tensors.size() << " tensors in safetensors file\n";
 
-  // Open safetensors file for reading data
   std::ifstream in_file(safetensors_path, std::ios::binary);
   if (!in_file.is_open()) {
     std::cerr << "Failed to open safetensors file for reading\n";
     return false;
   }
 
-  // Open output file
   std::ofstream out_file(output_path, std::ios::binary);
   if (!out_file.is_open()) {
     std::cerr << "Failed to open output file: " << output_path << "\n";
     return false;
   }
 
-  // Write magic number and version for format identification
-  const uint32_t MAGIC = 0x534D4C32; // "SML2" in little-endian
-  const uint32_t VERSION = 2;        // Version 2 = supports fp16/bf16
+  const uint32_t MAGIC = 0x534D4C32;
+  const uint32_t VERSION = 2;
   uint8_t precision_byte = static_cast<uint8_t>(precision_);
 
   out_file.write(reinterpret_cast<const char *>(&MAGIC), sizeof(uint32_t));
   out_file.write(reinterpret_cast<const char *>(&VERSION), sizeof(uint32_t));
   out_file.write(reinterpret_cast<const char *>(&precision_byte), sizeof(uint8_t));
 
-  // Write tensor count
   uint32_t tensor_count = static_cast<uint32_t>(tensors.size());
   out_file.write(reinterpret_cast<const char *>(&tensor_count), sizeof(uint32_t));
 
@@ -517,12 +496,10 @@ bool WeightDownloader::convert_safetensors_to_binary(
     }
     std::cout << "]\n";
 
-    // Write tensor name
     int32_t name_len = static_cast<int32_t>(info.name.length());
     out_file.write(reinterpret_cast<const char *>(&name_len), sizeof(int32_t));
     out_file.write(info.name.c_str(), name_len);
 
-    // Write shape
     int32_t shape_len = static_cast<int32_t>(info.shape.size());
     out_file.write(reinterpret_cast<const char *>(&shape_len), sizeof(int32_t));
     for (int64_t dim : info.shape) {
@@ -530,13 +507,11 @@ bool WeightDownloader::convert_safetensors_to_binary(
       out_file.write(reinterpret_cast<const char *>(&dim32), sizeof(int32_t));
     }
 
-    // Calculate total elements
     size_t total_elements = 1;
     for (int64_t dim : info.shape) {
       total_elements *= static_cast<size_t>(dim);
     }
 
-    // Read tensor data from safetensors
     in_file.seekg(header_size + info.data_offset);
 
     if (info.dtype == "F32") {
@@ -561,21 +536,19 @@ bool WeightDownloader::convert_safetensors_to_binary(
 }
 
 bool WeightDownloader::download_and_export(const std::string &output_dir) {
-  // Create output directory
   std::string mkdir_cmd = "mkdir -p \"" + output_dir + "\"";
   system(mkdir_cmd.c_str());
 
-  std::string weights_path = output_dir + "/smollm2_weights.bin";
+  std::string weights_path = output_dir + "/model.bin";
 
-  // Check if weights already exist
   if (weights_exist(output_dir)) {
-    std::cout << "Weights already exist at " << weights_path << "\n";
+    std::cout << "Weights already exist at " << output_dir << "\n";
     std::cout << "Delete the file to re-download.\n";
     return true;
   }
 
   std::cout << "========================================\n";
-  std::cout << "SmolLM2 Weight Downloader\n";
+  std::cout << "Model Weight Downloader\n";
   std::cout << "========================================\n";
   std::cout << "Model: " << model_name_ << "\n";
   std::cout << "Precision: ";
@@ -593,12 +566,10 @@ bool WeightDownloader::download_and_export(const std::string &output_dir) {
   std::cout << "Output: " << output_dir << "\n";
   std::cout << "========================================\n\n";
 
-  // Download tokenizer files first
   if (!download_tokenizer(output_dir)) {
     std::cerr << "Warning: Failed to download some tokenizer files\n";
   }
 
-  // Download model.safetensors
   std::string safetensors_path = output_dir + "/model.safetensors";
   std::string safetensors_url = get_hf_file_url("model.safetensors");
 
@@ -616,14 +587,12 @@ bool WeightDownloader::download_and_export(const std::string &output_dir) {
     std::cout << "\nSafetensors file already exists, using cached version\n";
   }
 
-  // Convert to custom binary format
   std::cout << "\nConverting to optimized binary format...\n";
   if (!convert_safetensors_to_binary(safetensors_path, weights_path)) {
     std::cerr << "Failed to convert weights\n";
     return false;
   }
 
-  // Get file sizes
   struct stat st;
   stat(safetensors_path.c_str(), &st);
   int64_t safetensors_size = st.st_size;
@@ -642,7 +611,6 @@ bool WeightDownloader::download_and_export(const std::string &output_dir) {
   std::cout << "Tokenizer dir: " << output_dir << "\n";
   std::cout << "========================================\n";
 
-  // Optionally delete the safetensors file to save space
   std::cout << "\nNote: You can delete " << safetensors_path << " to save disk space.\n";
 
   return true;

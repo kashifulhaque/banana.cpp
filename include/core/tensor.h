@@ -1,5 +1,5 @@
-#ifndef TENSOR_H
-#define TENSOR_H
+#ifndef CORE_TENSOR_H
+#define CORE_TENSOR_H
 
 #include <cassert>
 #include <cmath>
@@ -297,4 +297,4 @@ struct Tensor {
   }
 };
 
-#endif // TENSOR_H
+#endif // CORE_TENSOR_H
