@@ -1,13 +1,11 @@
 # LLM Inference Engine in C++
 
-This repository contains a CPU-first LLM inference engine written in modern C++. It runs GPT-2 and SmolLM2-360M-Instruct without depending on Python for inference. The codebase focuses on clarity and directness, while still using fast CPU kernels where available.
+This repository contains a CPU-first LLM inference engine written in modern C++. It runs SmolLM2-360M-Instruct without depending on Python for inference. The codebase focuses on clarity and directness, while still using fast CPU kernels where available.
 
 The current implementation uses:
 - A simple `Tensor` type with contiguous `float32` storage in [include/tensor.h](include/tensor.h).
 - Core ops such as matmul, softmax, GELU, layer norm, and RMSNorm in [src/ops.cpp](src/ops.cpp).
-- Two model implementations:
-  - GPT-2 in [src/gpt2.cpp](src/gpt2.cpp).
-  - SmolLM2 in [src/smollm2.cpp](src/smollm2.cpp).
+- SmolLM2 model implementation in [src/smollm2.cpp](src/smollm2.cpp).
 
 CPU performance is primarily driven by BLAS (Accelerate on macOS) through `Tensor::matmul` and `Tensor::matmul_ex`. Some attention loops are still implemented in C++ for clarity and can be optimized further. GPU execution is not implemented yet.
 
@@ -15,21 +13,16 @@ CPU performance is primarily driven by BLAS (Accelerate on macOS) through `Tenso
 
 | Model | Architecture | Parameters | Features |
 |-------|-------------|------------|----------|
-| GPT-2 | Transformer | 124M | Token + Position embeddings, GELU, LayerNorm |
 | SmolLM2-360M-Instruct | LLaMA | 360M | RoPE, GQA, SwiGLU, RMSNorm, Chat Template |
 
-## What’s Implemented
+## What's Implemented
 
 - Weight loading from a custom binary format (see [src/model_loader.cpp](src/model_loader.cpp)).
 - Tokenization:
-  - GPT-2 BPE tokenizer in [src/tokenizer.cpp](src/tokenizer.cpp).
   - SmolLM2 tokenizer and chat template in [src/smollm2_tokenizer.cpp](src/smollm2_tokenizer.cpp).
 - Transformer blocks:
-  - GPT-2 attention and MLP in [src/gpt2.cpp](src/gpt2.cpp).
   - SmolLM2 GQA attention, RoPE, RMSNorm, and SwiGLU in [src/smollm2.cpp](src/smollm2.cpp).
-- Autoregressive generation with sampling settings in the model main programs:
-  - GPT-2 entry point in [src/main.cpp](src/main.cpp).
-  - SmolLM2 entry point in [src/smollm2_main.cpp](src/smollm2_main.cpp).
+- Autoregressive generation with sampling settings in [src/smollm2_main.cpp](src/smollm2_main.cpp).
 
 ## Project Structure
 
@@ -39,21 +32,15 @@ CPU performance is primarily driven by BLAS (Accelerate on macOS) through `Tenso
 │   ├── tensor.h              # Basic tensor data structure
 │   ├── ops.h                 # Neural network operations
 │   ├── model_loader.h        # Weight loading utilities
-│   ├── tokenizer.h           # GPT-2 tokenizer
-│   ├── gpt2.h                # GPT-2 model architecture
 │   ├── smollm2.h             # SmolLM2 model architecture
 │   └── smollm2_tokenizer.h   # SmolLM2 tokenizer
 ├── src/
-│   ├── main.cpp              # GPT-2 main inference loop
 │   ├── model_loader.cpp
 │   ├── ops.cpp
-│   ├── tokenizer.cpp
-│   ├── gpt2.cpp
 │   ├── smollm2.cpp           # SmolLM2 implementation
 │   ├── smollm2_tokenizer.cpp # SmolLM2 tokenizer
 │   └── smollm2_main.cpp      # SmolLM2 main inference
 ├── scripts/
-│   ├── export_weights.py         # Export GPT-2 weights
 │   └── export_smollm2_weights.py # Export SmolLM2 weights
 └── weights/                  # Directory for model weights
 ```
@@ -120,35 +107,6 @@ Options:
   --interactive        Interactive chat mode
 ```
 
-## GPT-2 Usage
-
-1) Export GPT-2 weights:
-
-```bash
-python scripts/export_weights.py
-```
-
-2) Build the C++ inference engine (same as above):
-
-```bash
-mkdir -p build
-cd build
-cmake ..
-make
-```
-
-3) Run GPT-2 inference:
-
-```bash
-./gpt2_inference "Your prompt here"
-```
-
-Or use the default prompt:
-
-```bash
-./gpt2_inference
-```
-
 ## SmolLM2 Architecture
 
 SmolLM2-360M uses the LLaMA architecture with the following key components:
@@ -169,7 +127,7 @@ rms_norm_eps: 1e-5
 
 ### Key Components
 
-1. **RMSNorm** (vs LayerNorm in GPT-2): Root Mean Square normalization without mean centering
+1. **RMSNorm**: Root Mean Square normalization without mean centering
 2. **Rotary Position Embeddings (RoPE)**: Position encoding applied to Q and K in attention
 3. **Grouped Query Attention (GQA)**: 15 query heads share 5 KV heads (3:1 ratio)
 4. **SwiGLU Activation**: gate_proj * SiLU(up_proj) in the MLP

@@ -7,45 +7,26 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Include directories
 include_directories(${PROJECT_SOURCE_DIR}/include)
 
-# Common source files
-set(COMMON_SOURCES
-    src/model_loader.cpp
-    src/ops.cpp
-)
-
-# GPT-2 sources
-set(GPT2_SOURCES
-    ${COMMON_SOURCES}
-    src/main.cpp
-    src/tokenizer.cpp
-    src/gpt2.cpp
-)
-
 # SmolLM2 sources
 set(SMOLLM2_SOURCES
-    ${COMMON_SOURCES}
+    src/model_loader.cpp
+    src/ops.cpp
     src/smollm2_main.cpp
     src/smollm2.cpp
     src/smollm2_tokenizer.cpp
 )
-
-# Create GPT-2 executable
-add_executable(gpt2_inference ${GPT2_SOURCES})
 
 # Create SmolLM2 executable
 add_executable(smollm2_inference ${SMOLLM2_SOURCES})
 
 # Link Accelerate on macOS for fast BLAS
 if(APPLE)
-    target_compile_definitions(gpt2_inference PRIVATE ACCELERATE_NEW_LAPACK)
     target_compile_definitions(smollm2_inference PRIVATE ACCELERATE_NEW_LAPACK)
-    target_link_libraries(gpt2_inference PRIVATE "-framework Accelerate")
     target_link_libraries(smollm2_inference PRIVATE "-framework Accelerate")
 endif()
 
 # Compiler flags
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    target_compile_options(gpt2_inference PRIVATE -Wall -Wextra -O3 -march=native)
     target_compile_options(smollm2_inference PRIVATE -Wall -Wextra -O3 -march=native)
 endif()
 
@@ -67,16 +48,12 @@ endif()
 
 if(OpenMP_CXX_FOUND)
     if(OpenMP_CXX_FLAGS)
-        target_compile_options(gpt2_inference PRIVATE ${OpenMP_CXX_FLAGS})
         target_compile_options(smollm2_inference PRIVATE ${OpenMP_CXX_FLAGS})
     endif()
     if(TARGET OpenMP::OpenMP_CXX)
-        target_link_libraries(gpt2_inference PUBLIC OpenMP::OpenMP_CXX)
         target_link_libraries(smollm2_inference PUBLIC OpenMP::OpenMP_CXX)
     else()
-        target_link_libraries(gpt2_inference PUBLIC ${OpenMP_omp_LIBRARY})
         target_link_libraries(smollm2_inference PUBLIC ${OpenMP_omp_LIBRARY})
-        target_include_directories(gpt2_inference PRIVATE ${OPENMP_INCLUDE_DIR})
         target_include_directories(smollm2_inference PRIVATE ${OPENMP_INCLUDE_DIR})
     endif()
 endif()
