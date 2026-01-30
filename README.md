@@ -1,11 +1,12 @@
 # LLM Inference Engine in C++
 
-This repository contains a CPU-first LLM inference engine written in modern C++. It runs SmolLM2-360M-Instruct without depending on Python for inference. The codebase focuses on clarity and directness, while still using fast CPU kernels where available.
+This repository contains a CPU-first LLM inference engine written in modern C++. It runs SmolLM2-360M-Instruct without depending on Python at all. The codebase focuses on clarity and directness, while still using fast CPU kernels where available.
 
 The current implementation uses:
-- A simple `Tensor` type with contiguous `float32` storage in [include/tensor.h](include/tensor.h).
+- A simple `Tensor` type with support for `float32`, `float16`, and `bfloat16` storage in [include/tensor.h](include/tensor.h).
 - Core ops such as matmul, softmax, GELU, layer norm, and RMSNorm in [src/ops.cpp](src/ops.cpp).
 - SmolLM2 model implementation in [src/smollm2.cpp](src/smollm2.cpp).
+- Built-in weight downloader that fetches models from HuggingFace in [src/weight_downloader.cpp](src/weight_downloader.cpp).
 
 CPU performance is primarily driven by BLAS (Accelerate on macOS) through `Tensor::matmul` and `Tensor::matmul_ex`. Some attention loops are still implemented in C++ for clarity and can be optimized further. GPU execution is not implemented yet.
 
@@ -29,19 +30,19 @@ CPU performance is primarily driven by BLAS (Accelerate on macOS) through `Tenso
 ```
 .
 ├── include/
-│   ├── tensor.h              # Basic tensor data structure
+│   ├── tensor.h              # Basic tensor data structure (fp32/fp16/bf16)
 │   ├── ops.h                 # Neural network operations
 │   ├── model_loader.h        # Weight loading utilities
+│   ├── weight_downloader.h   # HuggingFace weight downloader
 │   ├── smollm2.h             # SmolLM2 model architecture
 │   └── smollm2_tokenizer.h   # SmolLM2 tokenizer
 ├── src/
 │   ├── model_loader.cpp
+│   ├── weight_downloader.cpp # Download & convert weights from HF
 │   ├── ops.cpp
 │   ├── smollm2.cpp           # SmolLM2 implementation
 │   ├── smollm2_tokenizer.cpp # SmolLM2 tokenizer
 │   └── smollm2_main.cpp      # SmolLM2 main inference
-├── scripts/
-│   └── export_smollm2_weights.py # Export SmolLM2 weights
 └── weights/                  # Directory for model weights
 ```
 
@@ -51,28 +52,32 @@ CPU performance is primarily driven by BLAS (Accelerate on macOS) through `Tenso
 
 - CMake 3.15+
 - A C++17 compiler (Apple Clang, Clang, or GCC)
-- Python 3.x with `transformers` and `torch` only for weight export
+- `curl` for downloading weights from HuggingFace
 
 On macOS, you will get the fastest CPU performance by linking to Accelerate (already wired in CMake). Optional OpenMP support can be enabled via Homebrew `libomp`.
 
 ### Steps
 
-1) Export SmolLM2 weights (requires Python with transformers):
-
-```bash
-pip install transformers torch
-python scripts/export_smollm2_weights.py
-```
-
-This will download SmolLM2-360M-Instruct from HuggingFace and save weights to `weights/smollm2/smollm2_weights.bin` (~1.4GB).
-
-2) Build the C++ inference engine:
+1) Build the C++ inference engine:
 
 ```bash
 mkdir -p build
 cd build
 cmake ..
 make
+```
+
+2) Download weights and run inference (weights are downloaded automatically if not present):
+
+```bash
+# Download weights with BF16 precision (default, ~720MB)
+./smollm2_inference --download
+
+# Or download with FP16 precision
+./smollm2_inference --download --precision fp16
+
+# Or download with FP32 precision (~1.4GB)
+./smollm2_inference --download --precision fp32
 ```
 
 3) Run inference:
@@ -105,7 +110,21 @@ Options:
   --top-p <f>          Top-p (nucleus) sampling (default: 0.9)
   --repetition-penalty <f>  Repetition penalty (default: 1.1)
   --interactive        Interactive chat mode
+  --download           Download model weights from HuggingFace
+  --precision <type>   Weight precision: fp32, fp16, bf16 (default: bf16)
 ```
+
+### Weight Precision
+
+The engine supports three precision levels for weight storage:
+
+| Precision | Size (360M model) | Memory Usage | Quality |
+|-----------|-------------------|--------------|---------|
+| FP32      | ~1.4 GB           | Higher       | Best    |
+| FP16      | ~720 MB           | Lower        | Good    |
+| BF16      | ~720 MB           | Lower        | Good (recommended) |
+
+BF16 (bfloat16) is recommended as it maintains the same dynamic range as FP32 while halving memory usage. All computations are performed in FP32 for maximum accuracy.
 
 ## SmolLM2 Architecture
 
@@ -135,17 +154,24 @@ rms_norm_eps: 1e-5
 
 ## How It Works
 
-### 1. Weight Export (scripts/export_smollm2_weights.py)
+### 1. Weight Download (src/weight_downloader.cpp)
 
-The Python script loads SmolLM2 from HuggingFace and exports all weights to a binary format:
-- Each tensor is stored with: name length, name, shape dimensions, shape values, and float32 data
+Downloads SmolLM2 weights directly from HuggingFace and converts to an optimized binary format:
+- Downloads `model.safetensors` from HuggingFace Hub
+- Parses safetensors format and extracts tensor metadata
+- Converts to custom binary format with configurable precision (FP32/FP16/BF16)
 - Total: 199 tensors (embedding, 32 transformer layers, final RMSNorm)
+
+Binary format (v2):
+- Magic number (`SML2`) + version + precision byte
+- For each tensor: name length, name, shape dimensions, shape values, data
 
 ### 2. Model Loading (src/model_loader.cpp)
 
 Reads the binary weight file and loads all tensors into memory:
+- Detects format version and precision from header
 - Parses tensor names and shapes
-- Allocates memory for each weight matrix
+- Loads FP16/BF16 data and converts to FP32 for computation
 - Stores in a hashmap for fast lookup
 
 ### 3. Tokenization (src/smollm2_tokenizer.cpp)
@@ -179,9 +205,8 @@ Implements the full LLaMA-style architecture:
 ## Current Limitations
 
 1. **Performance**: Fast CPU matmul via BLAS is in place, but attention and other ops are still mostly hand-written loops.
-2. **Memory**: All weights are loaded into RAM (~1.4GB for SmolLM2-360M).
-3. **Precision**: Float32 only (no quantization yet).
-4. **GPU**: No GPU backend (Metal/CUDA/Vulkan) yet.
+2. **Memory**: All weights are loaded into RAM (~720MB for BF16, ~1.4GB for FP32).
+3. **GPU**: No GPU backend (Metal/CUDA/Vulkan) yet.
 
 ## Future Improvements
 

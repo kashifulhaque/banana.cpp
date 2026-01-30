@@ -14,6 +14,7 @@ set(SMOLLM2_SOURCES
     src/smollm2_main.cpp
     src/smollm2.cpp
     src/smollm2_tokenizer.cpp
+    src/weight_downloader.cpp
 )
 
 # Create SmolLM2 executable
@@ -41,18 +42,15 @@ if(APPLE AND NOT OpenMP_CXX_FOUND)
         PATHS /opt/homebrew/opt/libomp/lib /usr/local/opt/libomp/lib)
     if(OPENMP_INCLUDE_DIR AND OPENMP_LIBRARY)
         set(OpenMP_CXX_FOUND TRUE)
-        set(OpenMP_CXX_FLAGS "-Xpreprocessor -fopenmp")
         set(OpenMP_omp_LIBRARY ${OPENMP_LIBRARY})
     endif()
 endif()
 
 if(OpenMP_CXX_FOUND)
-    if(OpenMP_CXX_FLAGS)
-        target_compile_options(smollm2_inference PRIVATE ${OpenMP_CXX_FLAGS})
-    endif()
     if(TARGET OpenMP::OpenMP_CXX)
         target_link_libraries(smollm2_inference PUBLIC OpenMP::OpenMP_CXX)
-    else()
+    elseif(OpenMP_omp_LIBRARY)
+        target_compile_options(smollm2_inference PRIVATE -Xpreprocessor -fopenmp)
         target_link_libraries(smollm2_inference PUBLIC ${OpenMP_omp_LIBRARY})
         target_include_directories(smollm2_inference PRIVATE ${OPENMP_INCLUDE_DIR})
     endif()

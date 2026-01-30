@@ -33,7 +33,7 @@ Tensor gelu(const Tensor& x) {
     return result;
 }
 
-Tensor softmax(const Tensor& x, int dim) {
+Tensor softmax(const Tensor& x, int /*dim*/) {
     Tensor result = x;
     
     /// simple 1D or 2D softmax (for last dimension)

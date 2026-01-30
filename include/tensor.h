@@ -3,6 +3,8 @@
 
 #include <cassert>
 #include <cmath>
+#include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <numeric>
 #include <vector>
@@ -11,9 +13,87 @@
 #include <Accelerate/Accelerate.h>
 #endif
 
+/// Storage precision for tensors
+enum class TensorPrecision {
+  FP32 = 0,  // 32-bit float (4 bytes)
+  FP16 = 1,  // 16-bit float (2 bytes)
+  BF16 = 2   // bfloat16 (2 bytes)
+};
+
+/// Half-precision utilities for tensor operations
+namespace tensor_fp16 {
+
+inline uint16_t float_to_fp16(float value) {
+  uint32_t f32;
+  std::memcpy(&f32, &value, sizeof(float));
+  uint32_t sign = (f32 >> 31) & 0x1;
+  int32_t exp = ((f32 >> 23) & 0xFF) - 127;
+  uint32_t mantissa = f32 & 0x7FFFFF;
+  uint16_t f16;
+  if (exp > 15) {
+    f16 = (sign << 15) | 0x7C00;
+  } else if (exp < -14) {
+    if (exp < -24) {
+      f16 = (sign << 15);
+    } else {
+      mantissa = (mantissa | 0x800000) >> (-exp - 14 + 13);
+      f16 = (sign << 15) | (mantissa & 0x3FF);
+    }
+  } else {
+    f16 = (sign << 15) | ((exp + 15) << 10) | (mantissa >> 13);
+  }
+  return f16;
+}
+
+inline float fp16_to_float(uint16_t value) {
+  uint32_t sign = (value >> 15) & 0x1;
+  uint32_t exp = (value >> 10) & 0x1F;
+  uint32_t mantissa = value & 0x3FF;
+  uint32_t f32;
+  if (exp == 0) {
+    if (mantissa == 0) {
+      f32 = sign << 31;
+    } else {
+      exp = 1;
+      while ((mantissa & 0x400) == 0) {
+        mantissa <<= 1;
+        exp--;
+      }
+      mantissa &= 0x3FF;
+      f32 = (sign << 31) | ((exp + 127 - 15) << 23) | (mantissa << 13);
+    }
+  } else if (exp == 31) {
+    f32 = (sign << 31) | 0x7F800000 | (mantissa << 13);
+  } else {
+    f32 = (sign << 31) | ((exp + 127 - 15) << 23) | (mantissa << 13);
+  }
+  float result;
+  std::memcpy(&result, &f32, sizeof(float));
+  return result;
+}
+
+inline uint16_t float_to_bf16(float value) {
+  uint32_t f32;
+  std::memcpy(&f32, &value, sizeof(float));
+  uint32_t rounding = 0x00008000;
+  f32 += rounding;
+  return static_cast<uint16_t>(f32 >> 16);
+}
+
+inline float bf16_to_float(uint16_t value) {
+  uint32_t f32 = static_cast<uint32_t>(value) << 16;
+  float result;
+  std::memcpy(&result, &f32, sizeof(float));
+  return result;
+}
+
+} // namespace tensor_fp16
+
 struct Tensor {
-  std::vector<float> data;
+  std::vector<float> data;        // FP32 data (for computation)
+  std::vector<uint16_t> data_f16; // FP16/BF16 storage (optional)
   std::vector<int> shape;
+  TensorPrecision storage_precision = TensorPrecision::FP32;
 
   Tensor() {}
 
@@ -24,11 +104,100 @@ struct Tensor {
     data.resize(size, 0.0f);
   }
 
-  /// helper to access data linearly
-  float &operator[](int i) { return data[i]; }
-  const float &operator[](int i) const { return data[i]; }
+  /// init with precision
+  Tensor(std::vector<int> s, TensorPrecision precision) : shape(s), storage_precision(precision) {
+    int size = 1;
+    for (int dim : shape) size *= dim;
+    if (precision == TensorPrecision::FP32) {
+      data.resize(size, 0.0f);
+    } else {
+      data_f16.resize(size, 0);
+    }
+  }
 
-  int size() const { return data.size(); }
+  /// helper to access data linearly (always returns fp32)
+  float &operator[](int i) { 
+    ensure_fp32();
+    return data[i]; 
+  }
+  const float &operator[](int i) const { 
+    // For const access, we must have fp32 data already
+    return data[i]; 
+  }
+
+  /// Get value at index (handles precision conversion)
+  float get(int i) const {
+    if (!data.empty()) {
+      return data[i];
+    } else if (!data_f16.empty()) {
+      if (storage_precision == TensorPrecision::FP16) {
+        return tensor_fp16::fp16_to_float(data_f16[i]);
+      } else {
+        return tensor_fp16::bf16_to_float(data_f16[i]);
+      }
+    }
+    return 0.0f;
+  }
+
+  /// Set value at index (handles precision conversion)
+  void set(int i, float value) {
+    if (!data.empty()) {
+      data[i] = value;
+    } else if (!data_f16.empty()) {
+      if (storage_precision == TensorPrecision::FP16) {
+        data_f16[i] = tensor_fp16::float_to_fp16(value);
+      } else {
+        data_f16[i] = tensor_fp16::float_to_bf16(value);
+      }
+    }
+  }
+
+  int size() const { 
+    return data.empty() ? static_cast<int>(data_f16.size()) : static_cast<int>(data.size()); 
+  }
+
+  /// Convert to FP32 for computation (lazy conversion)
+  void ensure_fp32() {
+    if (!data_f16.empty() && data.empty()) {
+      data.resize(data_f16.size());
+      if (storage_precision == TensorPrecision::FP16) {
+        for (size_t i = 0; i < data_f16.size(); ++i) {
+          data[i] = tensor_fp16::fp16_to_float(data_f16[i]);
+        }
+      } else { // BF16
+        for (size_t i = 0; i < data_f16.size(); ++i) {
+          data[i] = tensor_fp16::bf16_to_float(data_f16[i]);
+        }
+      }
+      // Clear fp16 data to save memory
+      data_f16.clear();
+      data_f16.shrink_to_fit();
+      storage_precision = TensorPrecision::FP32;
+    }
+  }
+
+  /// Convert to reduced precision for storage
+  void convert_to_fp16() {
+    ensure_fp32();
+    data_f16.resize(data.size());
+    for (size_t i = 0; i < data.size(); ++i) {
+      data_f16[i] = tensor_fp16::float_to_fp16(data[i]);
+    }
+    data.clear();
+    data.shrink_to_fit();
+    storage_precision = TensorPrecision::FP16;
+  }
+
+  void convert_to_bf16() {
+    ensure_fp32();
+    data_f16.resize(data.size());
+    for (size_t i = 0; i < data.size(); ++i) {
+      data_f16[i] = tensor_fp16::float_to_bf16(data[i]);
+    }
+    data.clear();
+    data.shrink_to_fit();
+    storage_precision = TensorPrecision::BF16;
+  }
 
   /// basic matmul (naive implementation, as of now)
   /// A (m x k) * B (k x n) -> C (m x n)

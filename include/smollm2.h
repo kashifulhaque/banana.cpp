@@ -94,8 +94,8 @@ private:
   Tensor linear(const Tensor &x, const Tensor &weight);
   Tensor linear_with_bias(const Tensor &x, const Tensor &weight, const Tensor &bias);
 
-  /// get weight by name
-  const Tensor *get_weight(const std::string &name);
+  /// get weight by name (warn=true prints warning if not found)
+  const Tensor *get_weight(const std::string &name, bool warn = true);
 
   /// sampling helpers
   int sample_token(const Tensor &logits, const SmolLM2SamplingConfig &config, const std::vector<int> &generated_tokens);

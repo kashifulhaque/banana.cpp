@@ -17,6 +17,39 @@ bool ModelLoader::load() {
     }
 
     std::cout << "Loading weights from: " << weights_path_ << std::endl;
+
+    // Check for new format with magic number
+    uint32_t magic;
+    file.read(reinterpret_cast<char*>(&magic), sizeof(uint32_t));
+    
+    bool new_format = (magic == 0x534D4C32); // "SML2"
+    uint32_t version = 1;
+    TensorPrecision precision = TensorPrecision::FP32;
+    uint32_t tensor_count_header = 0;
+
+    if (new_format) {
+        file.read(reinterpret_cast<char*>(&version), sizeof(uint32_t));
+        
+        if (version >= 2) {
+            uint8_t precision_byte;
+            file.read(reinterpret_cast<char*>(&precision_byte), sizeof(uint8_t));
+            precision = static_cast<TensorPrecision>(precision_byte);
+            file.read(reinterpret_cast<char*>(&tensor_count_header), sizeof(uint32_t));
+        }
+        
+        std::cout << "Format: v" << version;
+        switch (precision) {
+            case TensorPrecision::FP32: std::cout << " (FP32)"; break;
+            case TensorPrecision::FP16: std::cout << " (FP16)"; break;
+            case TensorPrecision::BF16: std::cout << " (BF16)"; break;
+        }
+        std::cout << std::endl;
+    } else {
+        // Old format - seek back to beginning
+        file.seekg(0);
+        std::cout << "Format: legacy (FP32)" << std::endl;
+    }
+
     int tensor_count = 0;
 
     while(file.peek() != EOF) {
@@ -44,11 +77,21 @@ bool ModelLoader::load() {
         /// create tensor and read data
         Tensor t;
         t.shape = shape;
-        t.data.resize(total_size);
-        file.read(reinterpret_cast<char*>(t.data.data()), total_size * sizeof(float));
+        t.storage_precision = precision;
+
+        if (precision == TensorPrecision::FP32) {
+            t.data.resize(total_size);
+            file.read(reinterpret_cast<char*>(t.data.data()), total_size * sizeof(float));
+        } else {
+            // Read as fp16/bf16, will convert to fp32 on access
+            t.data_f16.resize(total_size);
+            file.read(reinterpret_cast<char*>(t.data_f16.data()), total_size * sizeof(uint16_t));
+            // Immediately convert to fp32 for computation
+            t.ensure_fp32();
+        }
 
         /// store in map
-        weights[name] = t;
+        weights[name] = std::move(t);
         tensor_count++;
         
         // Print shape info

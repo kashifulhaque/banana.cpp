@@ -26,6 +26,7 @@
 #include "smollm2.h"
 #include "smollm2_tokenizer.h"
 #include "model_loader.h"
+#include "weight_downloader.h"
 
 void print_usage(const char* program_name) {
     std::cout << "SmolLM2 Inference Engine\n";
@@ -41,6 +42,8 @@ void print_usage(const char* program_name) {
     std::cout << "  --top-p <f>          Top-p (nucleus) sampling (default: 0.9)\n";
     std::cout << "  --repetition-penalty <f>  Repetition penalty (default: 1.1)\n";
     std::cout << "  --interactive        Interactive chat mode\n";
+    std::cout << "  --download           Download model weights from HuggingFace\n";
+    std::cout << "  --precision <type>   Weight precision: fp32, fp16, bf16 (default: bf16)\n";
     std::cout << "  --help               Show this help message\n";
 }
 
@@ -54,6 +57,8 @@ struct Config {
     float top_p = 0.9f;
     float repetition_penalty = 1.1f;
     bool interactive = false;
+    bool download = false;
+    WeightPrecision precision = WeightPrecision::BF16;
 };
 
 Config parse_args(int argc, char* argv[]) {
@@ -83,6 +88,20 @@ Config parse_args(int argc, char* argv[]) {
             config.repetition_penalty = std::stof(argv[++i]);
         } else if (arg == "--interactive") {
             config.interactive = true;
+        } else if (arg == "--download") {
+            config.download = true;
+        } else if (arg == "--precision" && i + 1 < argc) {
+            std::string prec = argv[++i];
+            if (prec == "fp32") {
+                config.precision = WeightPrecision::FP32;
+            } else if (prec == "fp16") {
+                config.precision = WeightPrecision::FP16;
+            } else if (prec == "bf16") {
+                config.precision = WeightPrecision::BF16;
+            } else {
+                std::cerr << "Unknown precision: " << prec << " (use fp32, fp16, or bf16)\n";
+                exit(1);
+            }
         }
     }
     
@@ -221,6 +240,44 @@ int main(int argc, char* argv[]) {
     std::cout << "SmolLM2 Inference Engine\n";
     std::cout << "====================================\n\n";
     
+    /// handle download mode
+    if (config.download) {
+        WeightDownloader downloader;
+        downloader.set_precision(config.precision);
+        
+        if (!downloader.download_and_export(config.tokenizer_path)) {
+            std::cerr << "Failed to download and export weights!\n";
+            return 1;
+        }
+        
+        std::cout << "\nWeights downloaded successfully!\n";
+        std::cout << "You can now run inference without --download flag.\n";
+        return 0;
+    }
+    
+    /// check if weights exist, offer to download
+    WeightDownloader downloader;
+    if (!downloader.weights_exist(config.tokenizer_path)) {
+        std::cout << "Model weights not found at: " << config.weights_path << "\n\n";
+        std::cout << "Would you like to download them now? [Y/n]: ";
+        
+        std::string response;
+        std::getline(std::cin, response);
+        
+        if (response.empty() || response[0] == 'Y' || response[0] == 'y') {
+            downloader.set_precision(config.precision);
+            if (!downloader.download_and_export(config.tokenizer_path)) {
+                std::cerr << "Failed to download weights!\n";
+                return 1;
+            }
+            std::cout << "\n";
+        } else {
+            std::cerr << "Cannot proceed without model weights.\n";
+            std::cerr << "Run with --download flag to download weights.\n";
+            return 1;
+        }
+    }
+    
     /// load tokenizer
     std::cout << "Loading tokenizer from: " << config.tokenizer_path << "\n";
     SmolLM2Tokenizer tokenizer;
@@ -238,7 +295,7 @@ int main(int argc, char* argv[]) {
     ModelLoader loader(config.weights_path);
     if (!loader.load()) {
         std::cerr << "Failed to load model weights!\n";
-        std::cerr << "Please run: python scripts/export_smollm2_weights.py\n";
+        std::cerr << "Run with --download flag to download weights from HuggingFace.\n";
         return 1;
     }
     std::cout << "\n";

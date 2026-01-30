@@ -57,9 +57,9 @@ SmolLM2Model::SmolLM2Model(ModelLoader& loader, const SmolLM2Config& config)
     init_rope_cache(config_.max_position_embeddings);
 }
 
-const Tensor* SmolLM2Model::get_weight(const std::string& name) {
+const Tensor* SmolLM2Model::get_weight(const std::string& name, bool warn) {
     const Tensor* weight = loader_.get(name);
-    if (!weight) {
+    if (!weight && warn) {
         std::cerr << "Warning: Weight '" << name << "' not found!" << std::endl;
     }
     return weight;
@@ -585,7 +585,8 @@ Tensor SmolLM2Model::forward(const std::vector<int>& input_ids) {
     }
     
     // LM head (tied with embedding weights)
-    const Tensor* lm_head = get_weight("lm_head.weight");
+    // Note: lm_head.weight may not exist if tie_word_embeddings is true
+    const Tensor* lm_head = get_weight("lm_head.weight", false);
     if (!lm_head && config_.tie_word_embeddings) {
         lm_head = get_weight("model.embed_tokens.weight");
     }
@@ -636,8 +637,9 @@ Tensor SmolLM2Model::forward_with_cache(const std::vector<int>& input_ids, KVCac
         hidden_states = rms_norm(hidden_states, *final_norm);
     }
     
-    // LM head
-    const Tensor* lm_head = get_weight("lm_head.weight");
+    // LM head (tied with embedding weights)
+    // Note: lm_head.weight may not exist if tie_word_embeddings is true
+    const Tensor* lm_head = get_weight("lm_head.weight", false);
     if (!lm_head && config_.tie_word_embeddings) {
         lm_head = get_weight("model.embed_tokens.weight");
     }
