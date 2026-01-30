@@ -4,9 +4,15 @@
 #include "llm_config.h"
 #include "model_loader.h"
 #include "tensor.h"
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
+
+/// Callback type for streaming token generation
+/// Called with each new token ID as it's generated
+/// Return false to stop generation early
+using TokenCallback = std::function<bool(int token_id)>;
 
 /// KV Cache for efficient autoregressive generation
 struct KVCache {
@@ -31,9 +37,11 @@ public:
   Tensor forward_with_cache(const std::vector<int>& input_ids, KVCache& cache);
 
   /// Generate text given a prompt
+  /// If token_callback is provided, it will be called for each generated token
   std::vector<int> generate(
     const std::vector<int>& input_ids,
-    const SamplingConfig& config = SamplingConfig()
+    const SamplingConfig& config = SamplingConfig(),
+    TokenCallback token_callback = nullptr
   );
 
   /// Access configuration
@@ -72,6 +80,9 @@ protected:
 
   // Apply RoPE to query and key tensors
   void apply_rope(Tensor& q, Tensor& k, int start_pos);
+
+  // Apply Q/K normalization (Qwen3)
+  void apply_qk_norm(Tensor& q, Tensor& k, int layer_idx);
 
   // Linear projections
   Tensor linear(const Tensor& x, const Tensor& weight);

@@ -265,6 +265,66 @@ Tensor LLMModel::linear_with_bias(const Tensor& x, const Tensor& weight, const T
 }
 
 // ============================================================================
+// Q/K Normalization (Qwen3)
+// ============================================================================
+
+void LLMModel::apply_qk_norm(Tensor& q, Tensor& k, int layer_idx) {
+  std::string prefix = config_.layer_prefix + std::to_string(layer_idx) + ".self_attn.";
+  const Tensor* q_norm = get_weight(prefix + "q_norm.weight", false);
+  const Tensor* k_norm = get_weight(prefix + "k_norm.weight", false);
+  
+  if (!q_norm || !k_norm) {
+    return;
+  }
+  
+  int seq_len = q.shape[0];
+  int num_heads_q = q.shape[1];
+  int num_heads_k = k.shape[1];
+  int head_dim = q.shape[2];
+  float eps = config_.rms_norm_eps;
+  
+  // Apply RMSNorm to each query head
+  for (int pos = 0; pos < seq_len; ++pos) {
+    for (int h = 0; h < num_heads_q; ++h) {
+      // Compute RMS for this head
+      float sum_sq = 0.0f;
+      for (int d = 0; d < head_dim; ++d) {
+        int idx = (pos * num_heads_q + h) * head_dim + d;
+        sum_sq += q.data[idx] * q.data[idx];
+      }
+      float rms = std::sqrt(sum_sq / head_dim + eps);
+      float scale = 1.0f / rms;
+      
+      // Apply normalization with weight
+      for (int d = 0; d < head_dim; ++d) {
+        int idx = (pos * num_heads_q + h) * head_dim + d;
+        q.data[idx] = q.data[idx] * scale * q_norm->data[d];
+      }
+    }
+  }
+  
+  // Apply RMSNorm to each key head
+  for (int pos = 0; pos < seq_len; ++pos) {
+    for (int h = 0; h < num_heads_k; ++h) {
+      // Compute RMS for this head
+      float sum_sq = 0.0f;
+      for (int d = 0; d < head_dim; ++d) {
+        int idx = (pos * num_heads_k + h) * head_dim + d;
+        sum_sq += k.data[idx] * k.data[idx];
+      }
+      float rms = std::sqrt(sum_sq / head_dim + eps);
+      float scale = 1.0f / rms;
+      
+      // Apply normalization with weight
+      for (int d = 0; d < head_dim; ++d) {
+        int idx = (pos * num_heads_k + h) * head_dim + d;
+        k.data[idx] = k.data[idx] * scale * k_norm->data[d];
+      }
+    }
+  }
+}
+
+// ============================================================================
 // Embedding Layer
 // ============================================================================
 
@@ -334,13 +394,19 @@ Tensor LLMModel::attention(const Tensor& x, int layer_idx, int start_pos) {
   k.shape = {seq_len, num_kv_heads, head_dim};
   v.shape = {seq_len, num_kv_heads, head_dim};
 
+  // Apply Q/K normalization (Qwen3)
+  if (config_.use_qk_norm) {
+    apply_qk_norm(q, k, layer_idx);
+  }
+
   // Apply RoPE
   apply_rope(q, k, start_pos);
 
   // Compute attention
   float scale = 1.0f / std::sqrt(static_cast<float>(head_dim));
 
-  Tensor attn_output({seq_len, hidden_size});
+  int attn_output_dim = num_heads * head_dim;  // This may differ from hidden_size
+  Tensor attn_output({seq_len, attn_output_dim});
   std::fill(attn_output.data.begin(), attn_output.data.end(), 0.0f);
 
 #ifdef _OPENMP
@@ -399,7 +465,7 @@ Tensor LLMModel::attention(const Tensor& x, int layer_idx, int start_pos) {
           int v_idx = (j * num_kv_heads + kv_head) * head_dim + d;
           sum += scores[i * seq_len + j] * v.data[v_idx];
         }
-        attn_output.data[i * hidden_size + h * head_dim + d] = sum;
+        attn_output.data[i * attn_output_dim + h * head_dim + d] = sum;
       }
     }
   }
@@ -449,6 +515,11 @@ Tensor LLMModel::attention_with_cache(const Tensor& x, int layer_idx, KVCache& c
   k.shape = {seq_len, num_kv_heads, head_dim};
   v.shape = {seq_len, num_kv_heads, head_dim};
 
+  // Apply Q/K normalization (Qwen3)
+  if (config_.use_qk_norm) {
+    apply_qk_norm(q, k, layer_idx);
+  }
+
   apply_rope(q, k, start_pos);
 
   // Store in cache
@@ -470,7 +541,8 @@ Tensor LLMModel::attention_with_cache(const Tensor& x, int layer_idx, KVCache& c
   int total_len = start_pos + seq_len;
   float scale = 1.0f / std::sqrt(static_cast<float>(head_dim));
 
-  Tensor attn_output({seq_len, hidden_size});
+  int attn_output_dim = num_heads * head_dim;  // This may differ from hidden_size
+  Tensor attn_output({seq_len, attn_output_dim});
   std::fill(attn_output.data.begin(), attn_output.data.end(), 0.0f);
 
 #ifdef _OPENMP
@@ -514,7 +586,7 @@ Tensor LLMModel::attention_with_cache(const Tensor& x, int layer_idx, KVCache& c
           int v_idx = (j * num_kv_heads + kv_head) * head_dim + d;
           weighted_sum += scores[j] * v_cache.data[v_idx];
         }
-        attn_output.data[i * hidden_size + h * head_dim + d] = weighted_sum;
+        attn_output.data[i * attn_output_dim + h * head_dim + d] = weighted_sum;
       }
     }
   }
@@ -870,7 +942,8 @@ int LLMModel::sample_token(const Tensor& logits, const SamplingConfig& config,
 // ============================================================================
 
 std::vector<int> LLMModel::generate(const std::vector<int>& input_ids,
-                                     const SamplingConfig& config) {
+                                     const SamplingConfig& config,
+                                     TokenCallback token_callback) {
   std::vector<int> generated = input_ids;
 
   KVCache cache;
@@ -883,6 +956,13 @@ std::vector<int> LLMModel::generate(const std::vector<int>& input_ids,
   for (int i = 0; i < config.max_new_tokens; ++i) {
     int next_token = sample_token(logits, config, generated);
     generated.push_back(next_token);
+
+    // Call the token callback if provided
+    if (token_callback) {
+      if (!token_callback(next_token)) {
+        break;  // Callback returned false, stop generation
+      }
+    }
 
     // Check for EOS
     if (is_eos_token(next_token)) {
@@ -899,10 +979,6 @@ std::vector<int> LLMModel::generate(const std::vector<int>& input_ids,
     // Forward single token
     std::vector<int> single_token = {next_token};
     logits = forward_with_cache(single_token, cache);
-
-    if ((i + 1) % 10 == 0) {
-      std::cout << "Generated " << (i + 1) << " tokens..." << std::endl;
-    }
   }
 
   return generated;

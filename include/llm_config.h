@@ -52,6 +52,7 @@ struct LLMConfig {
   int num_attention_heads = 32;         // Number of query heads
   int num_key_value_heads = 32;         // Number of KV heads (GQA when < num_attention_heads)
   int max_position_embeddings = 2048;   // Maximum context length
+  int head_dim_override = 0;            // Explicit head dimension (0 = compute from hidden_size/num_heads)
   
   // Normalization
   NormType norm_type = NormType::RMS_NORM;
@@ -70,6 +71,7 @@ struct LLMConfig {
   // Attention
   bool use_qkv_bias = false;            // Whether Q/K/V projections have bias
   bool use_o_bias = false;              // Whether output projection has bias
+  bool use_qk_norm = false;             // Whether to apply RMSNorm to Q/K (Qwen3)
   float attention_dropout = 0.0f;       // Attention dropout (usually 0 for inference)
   
   // MLP
@@ -85,7 +87,9 @@ struct LLMConfig {
   std::vector<int> eos_token_ids;       // Multiple EOS tokens (some models)
   
   // Derived values
-  int head_dim() const { return hidden_size / num_attention_heads; }
+  int head_dim() const { 
+    return head_dim_override > 0 ? head_dim_override : hidden_size / num_attention_heads; 
+  }
   int num_queries_per_kv() const { 
     return num_attention_heads / num_key_value_heads; 
   }
@@ -239,15 +243,17 @@ inline LLMConfig qwen3_0_6b() {
   cfg.architecture = ModelArchitecture::QWEN;
   cfg.vocab_size = 151936;
   cfg.hidden_size = 1024;
-  cfg.intermediate_size = 2816;
+  cfg.intermediate_size = 3072;  // Actual size from model weights
   cfg.num_hidden_layers = 28;
   cfg.num_attention_heads = 16;
   cfg.num_key_value_heads = 8;
+  cfg.head_dim_override = 128;   // Qwen3 uses 128 head_dim (not hidden_size/num_heads)
   cfg.max_position_embeddings = 32768;
   cfg.rms_norm_eps = 1e-6f;
   cfg.rope_theta = 1000000.0f;
   cfg.hidden_act = ActivationType::SILU;
   cfg.use_qkv_bias = true;  // Qwen uses bias in attention
+  cfg.use_qk_norm = true;   // Qwen3 uses Q/K normalization
   cfg.tie_word_embeddings = true;
   cfg.bos_token_id = 151643;
   cfg.eos_token_id = 151645;

@@ -164,16 +164,23 @@ void run_single_prompt(LLMModel& model, Tokenizer& tokenizer, const std::string&
   if (input_ids.size() > 20) std::cout << "...";
   std::cout << "\n\n";
 
-  // Generate
+  // Generate with streaming output
   std::cout << "[Generating...]\n";
   auto start_gen = std::chrono::high_resolution_clock::now();
 
-  std::vector<int> output_ids = model.generate(input_ids, sampling_config);
+  int tokens_generated = 0;
+  auto token_callback = [&tokenizer, &tokens_generated](int token_id) -> bool {
+    // Decode and print each token as it's generated
+    std::vector<int> single_token = {token_id};
+    std::string token_text = tokenizer.decode(single_token);
+    std::cout << token_text << std::flush;
+    tokens_generated++;
+    return true;  // Continue generation
+  };
+
+  std::vector<int> output_ids = model.generate(input_ids, sampling_config, token_callback);
 
   auto end_gen = std::chrono::high_resolution_clock::now();
-
-  // Decode
-  std::string output = tokenizer.decode(output_ids);
 
   // Calculate timing
   auto encode_time =
@@ -183,8 +190,7 @@ void run_single_prompt(LLMModel& model, Tokenizer& tokenizer, const std::string&
   int new_tokens = output_ids.size() - input_ids.size();
   float tokens_per_sec = (gen_time > 0) ? (new_tokens * 1000.0f / gen_time) : 0;
 
-  std::cout << "\n[Output]\n" << output << "\n\n";
-  std::cout << "[Stats]\n";
+  std::cout << "\n\n[Stats]\n";
   std::cout << "  Input tokens: " << input_ids.size() << "\n";
   std::cout << "  Output tokens: " << output_ids.size() << " (+" << new_tokens << " new)\n";
   std::cout << "  Encode time: " << encode_time << " ms\n";
