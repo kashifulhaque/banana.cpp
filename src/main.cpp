@@ -1,5 +1,5 @@
 /**
- * Generic LLM Inference Engine
+ * 🍌 banana.cpp
  * 
  * A pure C++ implementation supporting multiple small language models:
  * - SmolLM2 (135M, 360M, 1.7B)
@@ -37,43 +37,41 @@
 #include "utils/weight_downloader.h"
 
 void print_usage(const char* program_name) {
-  std::cout << "LLM Inference Engine\n";
-  std::cout << "====================\n\n";
-  std::cout << "Supported models: SmolLM2, Llama 3.2, Qwen 2.5/3\n\n";
-  std::cout << "Usage: " << program_name << " [options]\n\n";
-  std::cout << "Options:\n";
-  std::cout << "  --model <name>       Model name (e.g., smollm2-360m, llama-3.2-1b, qwen3-0.6b)\n";
-  std::cout << "  --weights <path>     Path to weights directory\n";
-  std::cout << "  --tokenizer <path>   Path to tokenizer directory\n";
-  std::cout << "  --prompt <text>      Input prompt for generation\n";
-  std::cout << "  --max-tokens <n>     Maximum new tokens to generate (default: 256)\n";
-  std::cout << "  --temperature <f>    Sampling temperature (default: 0.7)\n";
-  std::cout << "  --top-k <n>          Top-k sampling (default: 50)\n";
-  std::cout << "  --top-p <f>          Top-p (nucleus) sampling (default: 0.9)\n";
-  std::cout << "  --repetition-penalty <f>  Repetition penalty (default: 1.1)\n";
-  std::cout << "  --interactive        Interactive chat mode\n";
-  std::cout << "  --download           Download model weights from HuggingFace\n";
-  std::cout << "  --precision <type>   Weight precision: fp32, fp16, bf16 (default: bf16)\n";
-  std::cout << "  --list-models        List all supported models\n";
-  std::cout << "  --help               Show this help message\n";
+  std::cout << "🍌 banana.cpp" << std::endl;
+  std::cout << "Supported models: SmolLM2, Llama 3.2, Qwen 2.5/3" << std::endl << std::endl;
+  std::cout << "Usage: " << program_name << " [options]" << std::endl << std::endl;
+  std::cout << "Options:" << std::endl;
+  std::cout << "  --model <name>            Model name (e.g., smollm2-360m, llama-3.2-1b, qwen3-0.6b)" << std::endl;
+  std::cout << "  --weights <path>          Path to weights directory" << std::endl;
+  std::cout << "  --tokenizer <path>        Path to tokenizer directory" << std::endl;
+  std::cout << "  --prompt <text>           Input prompt for generation" << std::endl;
+  std::cout << "  --max-tokens <n>          Maximum new tokens to generate (default: 256)" << std::endl;
+  std::cout << "  --temperature <f>         Sampling temperature (default: 0.7)" << std::endl;
+  std::cout << "  --top-k <n>               Top-k sampling (default: 50)" << std::endl;
+  std::cout << "  --top-p <f>               Top-p (nucleus) sampling (default: 0.9)" << std::endl;
+  std::cout << "  --repetition-penalty <f>  Repetition penalty (default: 1.1)" << std::endl;
+  std::cout << "  --interactive             Interactive chat mode" << std::endl;
+  std::cout << "  --download                Download model weights from HuggingFace" << std::endl;
+  std::cout << "  --precision <type>        Weight precision: fp32, fp16, bf16 (default: bf16)" << std::endl;
+  std::cout << "  --list-models             List all supported models" << std::endl;
+  std::cout << "  --help                    Show this help message" << std::endl;
 }
 
 void list_supported_models() {
-  std::cout << "Supported Models:\n";
-  std::cout << "=================\n\n";
+  std::cout << "Supported Models:" << std::endl;
   
-  std::cout << "SmolLM2 Family:\n";
-  std::cout << "  smollm2-135m    SmolLM2-135M-Instruct (576 hidden, 30 layers)\n";
-  std::cout << "  smollm2-360m    SmolLM2-360M-Instruct (960 hidden, 32 layers)\n";
-  std::cout << "  smollm2-1.7b    SmolLM2-1.7B-Instruct (2048 hidden, 24 layers)\n\n";
+  std::cout << "SmolLM2 Family:" << std::endl;
+  std::cout << "  smollm2-135m    SmolLM2-135M-Instruct (576 hidden, 30 layers)" << std::endl;
+  std::cout << "  smollm2-360m    SmolLM2-360M-Instruct (960 hidden, 32 layers)" << std::endl;
+  std::cout << "  smollm2-1.7b    SmolLM2-1.7B-Instruct (2048 hidden, 24 layers)" << std::endl << std::endl;
   
-  std::cout << "Llama 3.2 Family:\n";
-  std::cout << "  llama-3.2-1b    Llama-3.2-1B-Instruct (2048 hidden, 16 layers)\n";
-  std::cout << "  llama-3.2-3b    Llama-3.2-3B-Instruct (3072 hidden, 28 layers)\n\n";
+  std::cout << "Llama 3.2 Family:" << std::endl;
+  std::cout << "  llama-3.2-1b    Llama-3.2-1B-Instruct (2048 hidden, 16 layers)" << std::endl;
+  std::cout << "  llama-3.2-3b    Llama-3.2-3B-Instruct (3072 hidden, 28 layers)" << std::endl << std::endl;
   
-  std::cout << "Qwen Family:\n";
-  std::cout << "  qwen2.5-0.5b    Qwen2.5-0.5B-Instruct (896 hidden, 24 layers)\n";
-  std::cout << "  qwen3-0.6b      Qwen3-0.6B (1024 hidden, 28 layers)\n";
+  std::cout << "Qwen Family:" << std::endl;
+  std::cout << "  qwen2.5-0.5b    Qwen2.5-0.5B-Instruct (896 hidden, 24 layers)" << std::endl;
+  std::cout << "  qwen3-0.6b      Qwen3-0.6B (1024 hidden, 28 layers)" << std::endl;
 }
 
 struct Config {
@@ -134,7 +132,7 @@ Config parse_args(int argc, char* argv[]) {
       } else if (prec == "bf16") {
         config.precision = WeightPrecision::BF16;
       } else {
-        std::cerr << "Unknown precision: " << prec << " (use fp32, fp16, or bf16)\n";
+        std::cerr << "Unknown precision: " << prec << " (use fp32, fp16, or bf16)" << std::endl;
         exit(1);
       }
     }
@@ -143,50 +141,42 @@ Config parse_args(int argc, char* argv[]) {
   return config;
 }
 
-void run_single_prompt(models::LLMModel& model, tokenizers::Tokenizer& tokenizer, 
-                       const std::string& prompt, const SamplingConfig& sampling_config) {
+void run_single_prompt(
+  models::LLMModel& model,
+  tokenizers::Tokenizer& tokenizer,
+  const std::string& prompt,
+  const SamplingConfig& sampling_config
+) {
   // Apply chat template
   std::vector<std::pair<std::string, std::string>> messages = {{"user", prompt}};
   std::string formatted = tokenizer.apply_chat_template(messages, true);
 
-  std::cout << "\n[Input]\n" << formatted << "\n";
+  std::cout << "\n[Input]\n" << formatted << std::endl;
 
   // Tokenize
   auto start_encode = std::chrono::high_resolution_clock::now();
   std::vector<int> input_ids = tokenizer.encode(formatted);
   auto end_encode = std::chrono::high_resolution_clock::now();
 
-  std::cout << "[Tokens] " << input_ids.size() << " input tokens\n";
-  std::cout << "[Token IDs] ";
-  for (size_t i = 0; i < std::min(input_ids.size(), size_t(20)); ++i) {
-    std::cout << input_ids[i] << " ";
-  }
-  if (input_ids.size() > 20) std::cout << "...";
-  std::cout << "\n\n";
-
   // Generate with streaming output
-  std::cout << "[Generating...]\n";
+  std::cout << "[Generating...]" << std::endl;
   auto start_gen = std::chrono::high_resolution_clock::now();
 
   int tokens_generated = 0;
   auto token_callback = [&tokenizer, &tokens_generated](int token_id) -> bool {
-    // Decode and print each token as it's generated
     std::vector<int> single_token = {token_id};
     std::string token_text = tokenizer.decode(single_token);
     std::cout << token_text << std::flush;
     tokens_generated++;
-    return true;  // Continue generation
+    return true;
   };
 
   std::vector<int> output_ids = model.generate(input_ids, sampling_config, token_callback);
 
   auto end_gen = std::chrono::high_resolution_clock::now();
 
-  // Calculate timing
-  auto encode_time =
-      std::chrono::duration_cast<std::chrono::milliseconds>(end_encode - start_encode).count();
-  auto gen_time =
-      std::chrono::duration_cast<std::chrono::milliseconds>(end_gen - start_gen).count();
+  auto encode_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_encode - start_encode).count();
+  auto gen_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_gen - start_gen).count();
   int new_tokens = output_ids.size() - input_ids.size();
   float tokens_per_sec = (gen_time > 0) ? (new_tokens * 1000.0f / gen_time) : 0;
 
