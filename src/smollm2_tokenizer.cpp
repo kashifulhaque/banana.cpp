@@ -1,9 +1,11 @@
 #include "smollm2_tokenizer.h"
+#include "weight_downloader.h"  // For get_hf_token()
 #include <fstream>
 #include <iostream>
 #include <sstream>
 #include <algorithm>
 #include <cstdlib>
+#include <cstring>
 #include <regex>
 #include <set>
 #include <climits>
@@ -73,12 +75,19 @@ bool SmolLM2Tokenizer::download_and_load(const std::string& save_dir) {
     if (!vocab_check.good() || !merges_check.good()) {
         std::cout << "Downloading SmolLM2 tokenizer files..." << std::endl;
         
+        // Get HF token for authentication
+        std::string hf_token = get_hf_token();
+        std::string auth_header;
+        if (!hf_token.empty()) {
+            auth_header = " -H \"Authorization: Bearer " + hf_token + "\"";
+        }
+        
         // Download vocab.json
-        std::string vocab_cmd = "curl -L https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/vocab.json -o " + vocab_path + " 2>/dev/null";
+        std::string vocab_cmd = "curl -L --fail" + auth_header + " https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/vocab.json -o " + vocab_path + " 2>/dev/null";
         int ret1 = system(vocab_cmd.c_str());
         
         // Download merges.txt
-        std::string merges_cmd = "curl -L https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/merges.txt -o " + merges_path + " 2>/dev/null";
+        std::string merges_cmd = "curl -L --fail" + auth_header + " https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/merges.txt -o " + merges_path + " 2>/dev/null";
         int ret2 = system(merges_cmd.c_str());
         
         if (ret1 != 0 || ret2 != 0) {

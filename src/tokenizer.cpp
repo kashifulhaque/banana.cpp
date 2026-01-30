@@ -1,7 +1,9 @@
 #include "tokenizer.h"
+#include "weight_downloader.h"  // For get_hf_token()
 #include <algorithm>
 #include <climits>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <iostream>
 #include <regex>
@@ -108,12 +110,19 @@ bool Tokenizer::download_and_load(const std::string& model_id, const std::string
   if (!vocab_check.good() || !merges_check.good()) {
     std::cout << "Downloading tokenizer files from " << model_id << "..." << std::endl;
 
+    // Get HF token for authentication
+    std::string hf_token = get_hf_token();
+    std::string auth_header;
+    if (!hf_token.empty()) {
+      auth_header = " -H \"Authorization: Bearer " + hf_token + "\"";
+    }
+
     std::string base_url = "https://huggingface.co/" + model_id + "/resolve/main/";
     
-    std::string vocab_cmd = "curl -L " + base_url + "vocab.json -o " + vocab_path + " 2>/dev/null";
+    std::string vocab_cmd = "curl -L --fail" + auth_header + " " + base_url + "vocab.json -o " + vocab_path + " 2>/dev/null";
     int ret1 = system(vocab_cmd.c_str());
 
-    std::string merges_cmd = "curl -L " + base_url + "merges.txt -o " + merges_path + " 2>/dev/null";
+    std::string merges_cmd = "curl -L --fail" + auth_header + " " + base_url + "merges.txt -o " + merges_path + " 2>/dev/null";
     int ret2 = system(merges_cmd.c_str());
 
     if (ret1 != 0 || ret2 != 0) {
@@ -133,6 +142,15 @@ bool Tokenizer::load(const std::string& tokenizer_dir) {
 bool Tokenizer::load(const std::string& tokenizer_dir, const TokenizerConfig& config) {
   config_ = config;
   
+  // First, try to load from tokenizer.json (unified HuggingFace format)
+  std::string tokenizer_json_path = tokenizer_dir + "/tokenizer.json";
+  std::ifstream tokenizer_json_check(tokenizer_json_path);
+  if (tokenizer_json_check.good()) {
+    tokenizer_json_check.close();
+    return load_from_tokenizer_json(tokenizer_json_path);
+  }
+  
+  // Fall back to vocab.json + merges.txt format
   std::string vocab_path = tokenizer_dir + "/vocab.json";
   std::string merges_path = tokenizer_dir + "/merges.txt";
 
@@ -251,6 +269,295 @@ bool Tokenizer::load(const std::string& tokenizer_dir, const TokenizerConfig& co
   vocab_size_ = token_to_id_.size();
   update_special_tokens();
   
+  return true;
+}
+
+bool Tokenizer::load_from_tokenizer_json(const std::string& json_path) {
+  std::cout << "Loading tokenizer from: " << json_path << std::endl;
+  
+  std::ifstream file(json_path);
+  if (!file.is_open()) {
+    std::cerr << "Failed to open tokenizer.json: " << json_path << std::endl;
+    return false;
+  }
+
+  // Read entire file
+  std::string content((std::istreambuf_iterator<char>(file)),
+                       std::istreambuf_iterator<char>());
+  file.close();
+
+  // Helper to unescape JSON unicode sequences
+  auto unescape_json = [](const std::string& s) -> std::string {
+    std::string result;
+    for (size_t i = 0; i < s.length(); ++i) {
+      if (s[i] == '\\' && i + 5 < s.length() && s[i + 1] == 'u') {
+        std::string hex = s.substr(i + 2, 4);
+        int unicode_point = std::stoi(hex, nullptr, 16);
+        if (unicode_point < 0x80) {
+          result += static_cast<char>(unicode_point);
+        } else if (unicode_point < 0x800) {
+          result += static_cast<char>(0xC0 | (unicode_point >> 6));
+          result += static_cast<char>(0x80 | (unicode_point & 0x3F));
+        } else if (unicode_point < 0x10000) {
+          result += static_cast<char>(0xE0 | (unicode_point >> 12));
+          result += static_cast<char>(0x80 | ((unicode_point >> 6) & 0x3F));
+          result += static_cast<char>(0x80 | (unicode_point & 0x3F));
+        }
+        i += 5;
+      } else if (s[i] == '\\' && i + 1 < s.length()) {
+        switch (s[i + 1]) {
+          case 'n': result += '\n'; i++; break;
+          case 't': result += '\t'; i++; break;
+          case 'r': result += '\r'; i++; break;
+          case '\\': result += '\\'; i++; break;
+          case '"': result += '"'; i++; break;
+          default: result += s[i]; break;
+        }
+      } else {
+        result += s[i];
+      }
+    }
+    return result;
+  };
+
+  // Find "model" section and then "vocab" within it
+  size_t model_pos = content.find("\"model\"");
+  if (model_pos == std::string::npos) {
+    std::cerr << "No 'model' section found in tokenizer.json" << std::endl;
+    return false;
+  }
+
+  // Find vocab within model section
+  size_t vocab_pos = content.find("\"vocab\"", model_pos);
+  if (vocab_pos == std::string::npos) {
+    std::cerr << "No 'vocab' found in model section" << std::endl;
+    return false;
+  }
+
+  // Find the opening brace of vocab object
+  size_t vocab_start = content.find("{", vocab_pos);
+  if (vocab_start == std::string::npos) {
+    std::cerr << "Failed to find vocab object start" << std::endl;
+    return false;
+  }
+
+  // Find matching closing brace (properly handling strings)
+  int brace_count = 1;
+  size_t vocab_end = vocab_start + 1;
+  bool in_string = false;
+  while (vocab_end < content.size() && brace_count > 0) {
+    char c = content[vocab_end];
+    if (in_string) {
+      if (c == '\\' && vocab_end + 1 < content.size()) {
+        vocab_end += 2;  // Skip escaped character
+        continue;
+      } else if (c == '"') {
+        in_string = false;
+      }
+    } else {
+      if (c == '"') {
+        in_string = true;
+      } else if (c == '{') {
+        brace_count++;
+      } else if (c == '}') {
+        brace_count--;
+      }
+    }
+    vocab_end++;
+  }
+
+  std::string vocab_content = content.substr(vocab_start, vocab_end - vocab_start);
+
+  // Parse vocab: {"token": id, ...} - properly handle escaped characters in tokens
+  size_t pos = 0;
+  while (pos < vocab_content.size()) {
+    // Find opening quote
+    pos = vocab_content.find("\"", pos);
+    if (pos == std::string::npos) break;
+    
+    size_t token_start = pos + 1;
+    
+    // Find closing quote, handling escapes
+    size_t token_end = token_start;
+    while (token_end < vocab_content.size()) {
+      if (vocab_content[token_end] == '\\' && token_end + 1 < vocab_content.size()) {
+        token_end += 2;  // Skip escaped character
+        continue;
+      }
+      if (vocab_content[token_end] == '"') {
+        break;
+      }
+      token_end++;
+    }
+    
+    if (token_end >= vocab_content.size()) break;
+
+    std::string token = vocab_content.substr(token_start, token_end - token_start);
+    pos = token_end + 1;
+
+    size_t colon_pos = vocab_content.find(":", pos);
+    if (colon_pos == std::string::npos) break;
+
+    size_t num_start = vocab_content.find_first_of("-0123456789", colon_pos);
+    if (num_start == std::string::npos) break;
+
+    size_t num_end = vocab_content.find_first_not_of("0123456789", num_start + 1);
+    if (num_end == std::string::npos) num_end = vocab_content.length();
+
+    std::string num_str = vocab_content.substr(num_start, num_end - num_start);
+    int id = std::stoi(num_str);
+    
+    pos = num_end;
+
+    std::string unescaped = unescape_json(token);
+    token_to_id_[unescaped] = id;
+    id_to_token_[id] = unescaped;
+
+    pos = num_end;
+  }
+
+  std::cout << "Loaded vocabulary with " << token_to_id_.size() << " tokens" << std::endl;
+
+  // Parse added_tokens section for special tokens
+  size_t added_tokens_pos = content.find("\"added_tokens\"");
+  if (added_tokens_pos != std::string::npos) {
+    size_t arr_start = content.find("[", added_tokens_pos);
+    if (arr_start != std::string::npos) {
+      // Find matching ]
+      int bracket_count = 1;
+      size_t arr_end = arr_start + 1;
+      while (arr_end < content.size() && bracket_count > 0) {
+        if (content[arr_end] == '[') bracket_count++;
+        else if (content[arr_end] == ']') bracket_count--;
+        arr_end++;
+      }
+      
+      std::string added_tokens_content = content.substr(arr_start, arr_end - arr_start);
+      
+      // Parse each added token object
+      size_t obj_pos = 0;
+      while ((obj_pos = added_tokens_content.find("{", obj_pos)) != std::string::npos) {
+        size_t obj_end = added_tokens_content.find("}", obj_pos);
+        if (obj_end == std::string::npos) break;
+        
+        std::string obj = added_tokens_content.substr(obj_pos, obj_end - obj_pos + 1);
+        
+        // Extract id
+        size_t id_pos = obj.find("\"id\"");
+        int token_id = -1;
+        if (id_pos != std::string::npos) {
+          size_t id_num_start = obj.find_first_of("0123456789", id_pos);
+          if (id_num_start != std::string::npos) {
+            size_t id_num_end = obj.find_first_not_of("0123456789", id_num_start);
+            token_id = std::stoi(obj.substr(id_num_start, id_num_end - id_num_start));
+          }
+        }
+        
+        // Extract content
+        size_t content_pos = obj.find("\"content\"");
+        std::string token_content;
+        if (content_pos != std::string::npos) {
+          size_t str_start = obj.find("\"", content_pos + 9);
+          if (str_start != std::string::npos) {
+            str_start++;
+            size_t str_end = obj.find("\"", str_start);
+            while (str_end != std::string::npos && str_end > 0 && obj[str_end - 1] == '\\') {
+              str_end = obj.find("\"", str_end + 1);
+            }
+            if (str_end != std::string::npos) {
+              token_content = unescape_json(obj.substr(str_start, str_end - str_start));
+            }
+          }
+        }
+        
+        if (token_id >= 0 && !token_content.empty()) {
+          token_to_id_[token_content] = token_id;
+          id_to_token_[token_id] = token_content;
+          added_tokens_.insert(token_content);
+        }
+        
+        obj_pos = obj_end + 1;
+      }
+    }
+    std::cout << "Loaded " << added_tokens_.size() << " special tokens" << std::endl;
+  }
+
+  // Find and parse merges
+  size_t merges_pos = content.find("\"merges\"", model_pos);
+  if (merges_pos != std::string::npos) {
+    size_t arr_start = content.find("[", merges_pos);
+    if (arr_start != std::string::npos) {
+      // Find matching ] properly (handling strings inside)
+      int bracket_count = 1;
+      size_t arr_end = arr_start + 1;
+      bool in_str = false;
+      while (arr_end < content.size() && bracket_count > 0) {
+        char c = content[arr_end];
+        if (in_str) {
+          if (c == '\\' && arr_end + 1 < content.size()) {
+            arr_end += 2;
+            continue;
+          } else if (c == '"') {
+            in_str = false;
+          }
+        } else {
+          if (c == '"') {
+            in_str = true;
+          } else if (c == '[') {
+            bracket_count++;
+          } else if (c == ']') {
+            bracket_count--;
+          }
+        }
+        arr_end++;
+      }
+      
+      std::string merges_content = content.substr(arr_start, arr_end - arr_start);
+      
+      int rank = 0;
+      size_t str_pos = 0;
+      
+      while (str_pos < merges_content.size()) {
+        str_pos = merges_content.find("\"", str_pos);
+        if (str_pos == std::string::npos) break;
+        
+        size_t str_start = str_pos + 1;
+        size_t str_end = str_start;
+        
+        // Find closing quote
+        while (str_end < merges_content.size()) {
+          if (merges_content[str_end] == '\\' && str_end + 1 < merges_content.size()) {
+            str_end += 2;
+            continue;
+          }
+          if (merges_content[str_end] == '"') {
+            break;
+          }
+          str_end++;
+        }
+        
+        if (str_end >= merges_content.size()) break;
+        
+        std::string merge = merges_content.substr(str_start, str_end - str_start);
+        str_pos = str_end + 1;
+        
+        // Split by space
+        size_t space_pos = merge.find(' ');
+        if (space_pos != std::string::npos) {
+          std::string first = unescape_json(merge.substr(0, space_pos));
+          std::string second = unescape_json(merge.substr(space_pos + 1));
+          bpe_ranks_[{first, second}] = rank++;
+        }
+      }
+      
+      std::cout << "Loaded " << bpe_ranks_.size() << " BPE merges" << std::endl;
+    }
+  }
+
+  vocab_size_ = token_to_id_.size();
+  update_special_tokens();
+  
+  std::cout << "Tokenizer loaded successfully (vocab size: " << vocab_size_ << ")" << std::endl;
   return true;
 }
 

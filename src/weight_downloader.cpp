@@ -11,6 +11,110 @@
 #include <cstdio>
 #include <cstdlib>
 
+// For terminal input (disable echo for password-like input)
+#ifdef __unix__
+#include <termios.h>
+#include <unistd.h>
+#endif
+
+std::string get_hf_token() {
+  // 1. Try environment variable first
+  const char* env_token = std::getenv("HF_TOKEN");
+  if (env_token && std::strlen(env_token) > 0) {
+    std::cout << "Using HF_TOKEN from environment variable.\n";
+    return std::string(env_token);
+  }
+
+  // Also try HUGGING_FACE_HUB_TOKEN (alternative name)
+  env_token = std::getenv("HUGGING_FACE_HUB_TOKEN");
+  if (env_token && std::strlen(env_token) > 0) {
+    std::cout << "Using HUGGING_FACE_HUB_TOKEN from environment variable.\n";
+    return std::string(env_token);
+  }
+
+  // 2. Try to read from .env file in current directory
+  std::ifstream env_file(".env");
+  if (env_file.is_open()) {
+    std::string line;
+    while (std::getline(env_file, line)) {
+      // Skip empty lines and comments
+      if (line.empty() || line[0] == '#') continue;
+      
+      // Look for HF_TOKEN=... or HUGGING_FACE_HUB_TOKEN=...
+      size_t eq_pos = line.find('=');
+      if (eq_pos != std::string::npos) {
+        std::string key = line.substr(0, eq_pos);
+        std::string value = line.substr(eq_pos + 1);
+        
+        // Trim whitespace from key
+        size_t start = key.find_first_not_of(" \t");
+        size_t end = key.find_last_not_of(" \t");
+        if (start != std::string::npos) {
+          key = key.substr(start, end - start + 1);
+        }
+        
+        // Trim whitespace and quotes from value
+        start = value.find_first_not_of(" \t\"'");
+        end = value.find_last_not_of(" \t\"'");
+        if (start != std::string::npos) {
+          value = value.substr(start, end - start + 1);
+        }
+        
+        if ((key == "HF_TOKEN" || key == "HUGGING_FACE_HUB_TOKEN") && !value.empty()) {
+          std::cout << "Using " << key << " from .env file.\n";
+          env_file.close();
+          return value;
+        }
+      }
+    }
+    env_file.close();
+  }
+
+  // 3. Prompt user for token
+  std::cout << "\nHuggingFace token not found in environment or .env file.\n";
+  std::cout << "Some models (like Llama) require authentication to download.\n";
+  std::cout << "Get your token from: https://huggingface.co/settings/tokens\n\n";
+  std::cout << "Enter your HuggingFace token (or press Enter to skip): ";
+  std::cout.flush();
+
+  std::string token;
+  
+#ifdef __unix__
+  // Disable echo for password-like input on Unix
+  struct termios old_term, new_term;
+  tcgetattr(STDIN_FILENO, &old_term);
+  new_term = old_term;
+  new_term.c_lflag &= ~ECHO;
+  tcsetattr(STDIN_FILENO, TCSANOW, &new_term);
+  
+  std::getline(std::cin, token);
+  
+  // Restore terminal settings
+  tcsetattr(STDIN_FILENO, TCSANOW, &old_term);
+  std::cout << "\n";
+#else
+  std::getline(std::cin, token);
+#endif
+
+  // Trim whitespace
+  size_t start = token.find_first_not_of(" \t\n\r");
+  size_t end = token.find_last_not_of(" \t\n\r");
+  if (start != std::string::npos) {
+    token = token.substr(start, end - start + 1);
+  } else {
+    token.clear();
+  }
+
+  if (token.empty()) {
+    std::cout << "No token provided. Proceeding without authentication.\n";
+    std::cout << "Note: Downloads may fail for gated models.\n\n";
+  } else {
+    std::cout << "Token received. Proceeding with authentication.\n\n";
+  }
+
+  return token;
+}
+
 namespace fp16_utils {
 
 uint16_t float_to_fp16(float value) {
@@ -96,7 +200,7 @@ float bf16_to_float(uint16_t value) {
 } // namespace fp16_utils
 
 WeightDownloader::WeightDownloader(const std::string &model_name)
-    : model_name_(model_name) {}
+    : model_name_(model_name), hf_token_(get_hf_token()) {}
 
 WeightDownloader::~WeightDownloader() {}
 
@@ -112,15 +216,23 @@ bool WeightDownloader::weights_exist(const std::string &output_dir) {
 
 bool WeightDownloader::download_file(const std::string &url,
                                       const std::string &output_path) {
+  std::string auth_header;
+  if (!hf_token_.empty()) {
+    auth_header = " -H \"Authorization: Bearer " + hf_token_ + "\"";
+  }
   std::string cmd =
-      "curl -L --fail --silent --show-error \"" + url + "\" -o \"" + output_path + "\"";
+      "curl -L --fail --silent --show-error" + auth_header + " \"" + url + "\" -o \"" + output_path + "\"";
   int ret = system(cmd.c_str());
   return ret == 0;
 }
 
 bool WeightDownloader::download_file_with_progress(const std::string &url,
                                                     const std::string &output_path) {
-  std::string cmd = "curl -L --fail --progress-bar \"" + url + "\" -o \"" + output_path + "\"";
+  std::string auth_header;
+  if (!hf_token_.empty()) {
+    auth_header = " -H \"Authorization: Bearer " + hf_token_ + "\"";
+  }
+  std::string cmd = "curl -L --fail --progress-bar" + auth_header + " \"" + url + "\" -o \"" + output_path + "\"";
   int ret = system(cmd.c_str());
   return ret == 0;
 }

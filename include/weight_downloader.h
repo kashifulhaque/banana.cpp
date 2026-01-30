@@ -39,6 +39,10 @@ struct TensorInfo {
   int64_t data_size;
 };
 
+/// Get HuggingFace token from environment, .env file, or user input
+/// Returns empty string if no token is available
+std::string get_hf_token();
+
 /// Downloads and exports SmolLM2 weights from HuggingFace
 class WeightDownloader {
 public:
@@ -60,6 +64,7 @@ public:
 
 private:
   std::string model_name_;
+  std::string hf_token_;
   WeightPrecision precision_ = WeightPrecision::BF16;
 
   /// HuggingFace API helpers

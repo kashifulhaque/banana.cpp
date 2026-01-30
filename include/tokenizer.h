@@ -46,10 +46,14 @@ public:
   virtual ~Tokenizer();
 
   /// Load tokenizer from a directory containing vocab.json and merges.txt
+  /// or tokenizer.json (HuggingFace format)
   bool load(const std::string& tokenizer_dir);
 
   /// Load with explicit config
   bool load(const std::string& tokenizer_dir, const TokenizerConfig& config);
+
+  /// Load from tokenizer.json (unified HuggingFace format)
+  bool load_from_tokenizer_json(const std::string& json_path);
 
   /// Download and load tokenizer from HuggingFace
   bool download_and_load(const std::string& model_id, 
