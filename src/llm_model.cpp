@@ -667,20 +667,24 @@ Tensor LLMModel::attention_with_cache(const Tensor& x, int layer_idx, KVCache& c
 
   apply_rope(q, k, start_pos);
 
-  // Store in cache
+  // Store in cache (optimized with memcpy for contiguous data)
   Tensor& k_cache = cache.key_cache[layer_idx];
   Tensor& v_cache = cache.value_cache[layer_idx];
-
+  
+  int kv_stride = num_kv_heads * head_dim;
   for (int pos = 0; pos < seq_len; ++pos) {
     int cache_pos = start_pos + pos;
-    for (int h = 0; h < num_kv_heads; ++h) {
-      for (int d = 0; d < head_dim; ++d) {
-        int src_idx = (pos * num_kv_heads + h) * head_dim + d;
-        int dst_idx = (cache_pos * num_kv_heads + h) * head_dim + d;
-        k_cache.data[dst_idx] = k.data[src_idx];
-        v_cache.data[dst_idx] = v.data[src_idx];
-      }
-    }
+    // Copy entire KV head row at once (num_kv_heads * head_dim floats)
+    std::memcpy(
+      k_cache.data.data() + cache_pos * kv_stride,
+      k.data.data() + pos * kv_stride,
+      kv_stride * sizeof(float)
+    );
+    std::memcpy(
+      v_cache.data.data() + cache_pos * kv_stride,
+      v.data.data() + pos * kv_stride,
+      kv_stride * sizeof(float)
+    );
   }
 
   int total_len = start_pos + seq_len;
@@ -712,14 +716,12 @@ Tensor LLMModel::attention_with_cache(const Tensor& x, int layer_idx, KVCache& c
       
       const float* q_ptr = q.data.data() + (i * num_heads + h) * head_dim;
 
-      // Build a contiguous K matrix for this KV head: [valid_len, head_dim]
-      // K is stored as [seq, num_kv_heads, head_dim], so we need stride access
-      // Use cblas_sgemv: scores = K @ q  (K is [valid_len x head_dim], q is [head_dim])
-      // Since K is not contiguous per head, we compute dot products but optimize the loop
-
       // Compute Q*K scores using vectorized dot product
+      // K is strided but vDSP_dotpr handles each row efficiently
+      int k_stride = num_kv_heads * head_dim;
+      const float* k_head_base = k_cache.data.data() + kv_head * head_dim;
       for (int j = 0; j < valid_len; ++j) {
-        const float* k_ptr = k_cache.data.data() + (j * num_kv_heads + kv_head) * head_dim;
+        const float* k_ptr = k_head_base + j * k_stride;
         float score;
         vDSP_dotpr(q_ptr, 1, k_ptr, 1, &score, head_dim);
         scores[j] = score * scale;
@@ -743,29 +745,23 @@ Tensor LLMModel::attention_with_cache(const Tensor& x, int layer_idx, KVCache& c
       float inv_sum = 1.0f / (sum + 1e-10f);
       vDSP_vsmul(scores.data(), 1, &inv_sum, scores.data(), 1, valid_len);
 
-      // Compute weighted sum of values: out[d] = sum_j(scores[j] * V[j, d])
-      // V is [seq, num_kv_heads, head_dim] - not contiguous per head
-      // For each dimension d, this is a dot product: scores . V[:, kv_head, d]
+      // Compute weighted sum of values: out = sum_j(scores[j] * V[j,:])
+      // Use vectorized operations: iterate over valid_len, for each j:
+      //   out += scores[j] * V[j, kv_head, :]
       
       float* out_ptr = attn_output.data.data() + i * attn_output_dim + h * head_dim;
-      
-      // Vectorized version: loop over dimensions, use vDSP for the weighted sum
-      // V stride for this head: every num_kv_heads * head_dim positions
       int v_stride = num_kv_heads * head_dim;
       
-      for (int d = 0; d < head_dim; ++d) {
-        // Get V values for dimension d across all positions
-        // V[j, kv_head, d] at index: j * v_stride + kv_head * head_dim + d
-        float weighted_sum = 0.0f;
-        
-        // Use vDSP_dotpr with strided access
-        // Unfortunately V is not contiguous, so we need to gather or loop
-        // For now, use an optimized scalar loop (still faster due to better cache use)
-        const float* v_base = v_cache.data.data() + kv_head * head_dim + d;
-        for (int j = 0; j < valid_len; ++j) {
-          weighted_sum += scores[j] * v_base[j * v_stride];
-        }
-        out_ptr[d] = weighted_sum;
+      // Zero output first
+      std::memset(out_ptr, 0, head_dim * sizeof(float));
+      
+      // Accumulate: out += scores[j] * V_row for each j
+      const float* v_head_base = v_cache.data.data() + kv_head * head_dim;
+      for (int j = 0; j < valid_len; ++j) {
+        const float* v_row = v_head_base + j * v_stride;
+        float score_j = scores[j];
+        // out += score_j * v_row (vDSP_vsma: out = out + scalar * v_row)
+        vDSP_vsma(v_row, 1, &score_j, out_ptr, 1, out_ptr, 1, head_dim);
       }
     }
   }
