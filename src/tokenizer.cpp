@@ -856,6 +856,10 @@ std::string Tokenizer::apply_llama2(
     ++it;
   }
 
+  if (add_gen_prompt) {
+    result += "[INST] ";
+  }
+
   return result;
 }
 
@@ -871,6 +875,10 @@ std::string Tokenizer::apply_mistral(
     } else if (msg.first == "assistant") {
       result += msg.second + "</s> ";
     }
+  }
+
+  if (add_gen_prompt) {
+    // Mistral expects next turn to start with [INST]
   }
 
   return result;
