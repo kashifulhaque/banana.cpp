@@ -128,40 +128,37 @@ void LLMModel::apply_rope(Tensor& q, Tensor& k, int start_pos) {
   int head_dim = q.shape[2];
   int half_dim = head_dim / 2;
 
+  // Optimized RoPE with pointer-based access for better cache locality
   for (int pos = 0; pos < seq_len; ++pos) {
     int abs_pos = start_pos + pos;
+    const float* cos_ptr = cos_cached_.data() + abs_pos * half_dim;
+    const float* sin_ptr = sin_cached_.data() + abs_pos * half_dim;
 
     // Apply RoPE to query heads
     for (int h = 0; h < num_heads_q; ++h) {
+      float* q_ptr = q.data.data() + (pos * num_heads_q + h) * head_dim;
+      
       for (int i = 0; i < half_dim; ++i) {
-        float cos_val = cos_cached_[abs_pos * half_dim + i];
-        float sin_val = sin_cached_[abs_pos * half_dim + i];
-
-        int idx1 = (pos * num_heads_q + h) * head_dim + i;
-        int idx2 = (pos * num_heads_q + h) * head_dim + i + half_dim;
-
-        float q1 = q.data[idx1];
-        float q2 = q.data[idx2];
-
-        q.data[idx1] = q1 * cos_val - q2 * sin_val;
-        q.data[idx2] = q1 * sin_val + q2 * cos_val;
+        float q1 = q_ptr[i];
+        float q2 = q_ptr[i + half_dim];
+        float cos_val = cos_ptr[i];
+        float sin_val = sin_ptr[i];
+        q_ptr[i] = q1 * cos_val - q2 * sin_val;
+        q_ptr[i + half_dim] = q1 * sin_val + q2 * cos_val;
       }
     }
 
     // Apply RoPE to key heads
     for (int h = 0; h < num_heads_k; ++h) {
+      float* k_ptr = k.data.data() + (pos * num_heads_k + h) * head_dim;
+      
       for (int i = 0; i < half_dim; ++i) {
-        float cos_val = cos_cached_[abs_pos * half_dim + i];
-        float sin_val = sin_cached_[abs_pos * half_dim + i];
-
-        int idx1 = (pos * num_heads_k + h) * head_dim + i;
-        int idx2 = (pos * num_heads_k + h) * head_dim + i + half_dim;
-
-        float k1 = k.data[idx1];
-        float k2 = k.data[idx2];
-
-        k.data[idx1] = k1 * cos_val - k2 * sin_val;
-        k.data[idx2] = k1 * sin_val + k2 * cos_val;
+        float k1 = k_ptr[i];
+        float k2 = k_ptr[i + half_dim];
+        float cos_val = cos_ptr[i];
+        float sin_val = sin_ptr[i];
+        k_ptr[i] = k1 * cos_val - k2 * sin_val;
+        k_ptr[i + half_dim] = k1 * sin_val + k2 * cos_val;
       }
     }
   }
@@ -1046,19 +1043,34 @@ Tensor LLMModel::forward(const std::vector<int>& input_ids) {
   int hidden_size = config_.hidden_size;
   int vocab_size = config_.vocab_size;
 
-  Tensor last_hidden({1, hidden_size});
-  for (int i = 0; i < hidden_size; ++i) {
-    last_hidden.data[i] = hidden_states.data[(seq_len - 1) * hidden_size + i];
-  }
+  // Get pointer to last hidden state (no copy needed for single token)
+  const float* last_hidden_ptr = hidden_states.data.data() + (seq_len - 1) * hidden_size;
 
   Tensor logits({vocab_size});
+
+#if defined(__APPLE__)
+  // Use BLAS sgemv: logits = lm_head @ last_hidden
+  // lm_head is [vocab_size, hidden_size], we want [vocab_size] output
+  // y = alpha * A * x + beta * y, where A is row-major [vocab_size x hidden_size]
+  cblas_sgemv(
+    CblasRowMajor, CblasNoTrans,
+    vocab_size, hidden_size,  // M, N
+    1.0f,                     // alpha
+    lm_head->data.data(), hidden_size,  // A, lda
+    last_hidden_ptr, 1,       // x, incx
+    0.0f,                     // beta
+    logits.data.data(), 1     // y, incy
+  );
+#else
+  // Fallback scalar implementation
   for (int v = 0; v < vocab_size; ++v) {
     float sum = 0.0f;
     for (int h = 0; h < hidden_size; ++h) {
-      sum += last_hidden.data[h] * lm_head->data[v * hidden_size + h];
+      sum += last_hidden_ptr[h] * lm_head->data[v * hidden_size + h];
     }
     logits.data[v] = sum;
   }
+#endif
 
   return logits;
 }
@@ -1093,19 +1105,34 @@ Tensor LLMModel::forward_with_cache(const std::vector<int>& input_ids, KVCache& 
   int hidden_size = config_.hidden_size;
   int vocab_size = config_.vocab_size;
 
-  Tensor last_hidden({1, hidden_size});
-  for (int i = 0; i < hidden_size; ++i) {
-    last_hidden.data[i] = hidden_states.data[(seq_len - 1) * hidden_size + i];
-  }
+  // Get pointer to last hidden state (no copy needed for single token)
+  const float* last_hidden_ptr = hidden_states.data.data() + (seq_len - 1) * hidden_size;
 
   Tensor logits({vocab_size});
+
+#if defined(__APPLE__)
+  // Use BLAS sgemv: logits = lm_head @ last_hidden
+  // lm_head is [vocab_size, hidden_size], we want [vocab_size] output
+  // y = alpha * A * x + beta * y, where A is row-major [vocab_size x hidden_size]
+  cblas_sgemv(
+    CblasRowMajor, CblasNoTrans,
+    vocab_size, hidden_size,  // M, N
+    1.0f,                     // alpha
+    lm_head->data.data(), hidden_size,  // A, lda
+    last_hidden_ptr, 1,       // x, incx
+    0.0f,                     // beta
+    logits.data.data(), 1     // y, incy
+  );
+#else
+  // Fallback scalar implementation
   for (int v = 0; v < vocab_size; ++v) {
     float sum = 0.0f;
     for (int h = 0; h < hidden_size; ++h) {
-      sum += last_hidden.data[h] * lm_head->data[v * hidden_size + h];
+      sum += last_hidden_ptr[h] * lm_head->data[v * hidden_size + h];
     }
     logits.data[v] = sum;
   }
+#endif
 
   return logits;
 }
