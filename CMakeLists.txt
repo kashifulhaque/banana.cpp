@@ -7,7 +7,18 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Include directories
 include_directories(${PROJECT_SOURCE_DIR}/include)
 
-# SmolLM2 sources
+# Generic LLM inference engine sources
+set(LLM_SOURCES
+    src/llm_model.cpp
+    src/model_loader.cpp
+    src/model_registry.cpp
+    src/ops.cpp
+    src/tokenizer.cpp
+    src/weight_downloader.cpp
+    src/main.cpp
+)
+
+# Legacy SmolLM2-specific sources (for backward compatibility)
 set(SMOLLM2_SOURCES
     src/model_loader.cpp
     src/ops.cpp
@@ -17,17 +28,24 @@ set(SMOLLM2_SOURCES
     src/weight_downloader.cpp
 )
 
-# Create SmolLM2 executable
+# Create generic LLM inference executable
+add_executable(llm_inference ${LLM_SOURCES})
+
+# Create legacy SmolLM2 executable (backward compatibility)
 add_executable(smollm2_inference ${SMOLLM2_SOURCES})
 
 # Link Accelerate on macOS for fast BLAS
 if(APPLE)
+    target_compile_definitions(llm_inference PRIVATE ACCELERATE_NEW_LAPACK)
+    target_link_libraries(llm_inference PRIVATE "-framework Accelerate")
+    
     target_compile_definitions(smollm2_inference PRIVATE ACCELERATE_NEW_LAPACK)
     target_link_libraries(smollm2_inference PRIVATE "-framework Accelerate")
 endif()
 
 # Compiler flags
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(llm_inference PRIVATE -Wall -Wextra -O3 -march=native)
     target_compile_options(smollm2_inference PRIVATE -Wall -Wextra -O3 -march=native)
 endif()
 
@@ -48,8 +66,13 @@ endif()
 
 if(OpenMP_CXX_FOUND)
     if(TARGET OpenMP::OpenMP_CXX)
+        target_link_libraries(llm_inference PUBLIC OpenMP::OpenMP_CXX)
         target_link_libraries(smollm2_inference PUBLIC OpenMP::OpenMP_CXX)
     elseif(OpenMP_omp_LIBRARY)
+        target_compile_options(llm_inference PRIVATE -Xpreprocessor -fopenmp)
+        target_link_libraries(llm_inference PUBLIC ${OpenMP_omp_LIBRARY})
+        target_include_directories(llm_inference PRIVATE ${OPENMP_INCLUDE_DIR})
+        
         target_compile_options(smollm2_inference PRIVATE -Xpreprocessor -fopenmp)
         target_link_libraries(smollm2_inference PUBLIC ${OpenMP_omp_LIBRARY})
         target_include_directories(smollm2_inference PRIVATE ${OPENMP_INCLUDE_DIR})
