@@ -158,7 +158,7 @@ void run_single_prompt(
   std::vector<int> input_ids = tokenizer.encode(formatted);
   auto end_encode = std::chrono::high_resolution_clock::now();
 
-  // Generate with streaming output
+  // Streaming response
   std::cout << "[Generating...]" << std::endl;
   auto start_gen = std::chrono::high_resolution_clock::now();
 
@@ -180,26 +180,26 @@ void run_single_prompt(
   int new_tokens = output_ids.size() - input_ids.size();
   float tokens_per_sec = (gen_time > 0) ? (new_tokens * 1000.0f / gen_time) : 0;
 
-  std::cout << "\n\n[Stats]\n";
-  std::cout << "  Input tokens: " << input_ids.size() << "\n";
-  std::cout << "  Output tokens: " << output_ids.size() << " (+" << new_tokens << " new)\n";
-  std::cout << "  Encode time: " << encode_time << " ms\n";
-  std::cout << "  Generate time: " << gen_time << " ms\n";
-  std::cout << "  Speed: " << tokens_per_sec << " tokens/sec\n";
+  std::cout << "\n\n[Stats]" << std::endl;
+  std::cout << "  Input tokens: " << input_ids.size() << std::endl;
+  std::cout << "  Output tokens: " << output_ids.size() << " (+" << new_tokens << " new)" << std::endl;
+  std::cout << "  Encode time: " << encode_time << " ms" << std::endl;
+  std::cout << "  Generate time: " << gen_time << " ms" << std::endl;
+  std::cout << "  Speed: " << tokens_per_sec << " tokens/sec" << std::endl;
 }
 
-void run_interactive(models::LLMModel& model, tokenizers::Tokenizer& tokenizer, 
-                     const SamplingConfig& sampling_config,
-                     const std::string& model_name) {
-  std::cout << "\n====================================\n";
-  std::cout << model_name << " Interactive Chat\n";
-  std::cout << "====================================\n";
-  std::cout << "Type your message and press Enter.\n";
-  std::cout << "Commands:\n";
-  std::cout << "  /quit  - Exit the chat\n";
-  std::cout << "  /clear - Clear chat history\n";
-  std::cout << "  /temp <f> - Set temperature\n";
-  std::cout << "====================================\n\n";
+void run_interactive(
+  models::LLMModel& model,
+  tokenizers::Tokenizer& tokenizer,
+  const SamplingConfig& sampling_config,
+  const std::string& model_name
+) {
+  std::cout << model_name << " Interactive Chat" << std::endl;
+  std::cout << "Type your message and press Enter." << std::endl;
+  std::cout << "Commands:" << std::endl;
+  std::cout << "  /quit  - Exit the chat" << std::endl;
+  std::cout << "  /clear - Clear chat history" << std::endl;
+  std::cout << "  /temp <f> - Set temperature" << std::endl;
 
   std::vector<std::pair<std::string, std::string>> history;
   SamplingConfig current_config = sampling_config;
@@ -208,37 +208,29 @@ void run_interactive(models::LLMModel& model, tokenizers::Tokenizer& tokenizer,
     std::cout << "You: ";
     std::string input;
     std::getline(std::cin, input);
-
     if (input.empty()) continue;
 
-    // Handle commands
     if (input == "/quit" || input == "/exit") {
-      std::cout << "Goodbye!\n";
+      std::cout << "Goodbye!" << std::endl;
       break;
     } else if (input == "/clear") {
       history.clear();
-      std::cout << "[Chat history cleared]\n\n";
+      std::cout << "[Chat history cleared]" << std::endl << std::endl;
       continue;
     } else if (input.substr(0, 6) == "/temp ") {
       try {
         current_config.temperature = std::stof(input.substr(6));
-        std::cout << "[Temperature set to " << current_config.temperature << "]\n\n";
+        std::cout << "[Temperature set to " << current_config.temperature << "]" << std::endl << std::endl;
       } catch (...) {
-        std::cout << "[Invalid temperature value]\n\n";
+        std::cout << "[Invalid temperature value]" << std::endl << std::endl;
       }
       continue;
     }
 
-    // Add user message to history
     history.push_back({"user", input});
-
-    // Apply chat template
     std::string formatted = tokenizer.apply_chat_template(history, true);
-
-    // Tokenize
     std::vector<int> input_ids = tokenizer.encode(formatted);
 
-    // Generate
     auto start = std::chrono::high_resolution_clock::now();
     std::vector<int> output_ids = model.generate(input_ids, current_config);
     auto end = std::chrono::high_resolution_clock::now();
@@ -247,10 +239,7 @@ void run_interactive(models::LLMModel& model, tokenizers::Tokenizer& tokenizer,
     std::vector<int> new_tokens(output_ids.begin() + input_ids.size(), output_ids.end());
     std::string response = tokenizer.decode(new_tokens);
 
-    // Clean up response (remove trailing special tokens)
-    std::vector<std::string> eos_markers = {
-      "<|im_end|>", "<|eot_id|>", "</s>", "<|end|>", "<|endoftext|>"
-    };
+    std::vector<std::string> eos_markers = { "<|im_end|>", "<|eot_id|>", "</s>", "<|end|>", "<|endoftext|>" };
     for (const auto& marker : eos_markers) {
       size_t end_pos = response.find(marker);
       if (end_pos != std::string::npos) {
@@ -259,15 +248,13 @@ void run_interactive(models::LLMModel& model, tokenizers::Tokenizer& tokenizer,
       }
     }
 
-    // Add assistant response to history
     history.push_back({"assistant", response});
 
-    // Calculate timing
     auto gen_time = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
     float tokens_per_sec = (gen_time > 0) ? (new_tokens.size() * 1000.0f / gen_time) : 0;
 
-    std::cout << "\nAssistant: " << response << "\n";
-    std::cout << "[" << new_tokens.size() << " tokens, " << tokens_per_sec << " tok/s]\n\n";
+    std::cout << "\nAssistant: " << response << std::endl;
+    std::cout << "[" << new_tokens.size() << " tokens, " << tokens_per_sec << " tok/s]" << std::endl << std::endl;
   }
 }
 
@@ -279,33 +266,27 @@ int main(int argc, char* argv[]) {
     return 0;
   }
 
-  std::cout << "====================================\n";
-  std::cout << "LLM Inference Engine\n";
-  std::cout << "====================================\n\n";
+  std::cout << "🍌 banana.cpp" << std::endl;
 
-  // Detect/load model configuration
   std::optional<ModelInfo> model_info;
   
-  // First, check if weights_path is specified and has config.json
   if (!config.weights_path.empty()) {
     model_info = ModelRegistry::detect_from_directory(config.weights_path);
   }
   
-  // If not found, try to get by model name
   if (!model_info) {
     model_info = ModelRegistry::get_model_info(config.model_name);
   }
   
   if (!model_info) {
-    std::cerr << "Unknown model: " << config.model_name << "\n";
-    std::cerr << "Use --list-models to see supported models.\n";
+    std::cerr << "Unknown model: " << config.model_name << std::endl;
+    std::cerr << "Use --list-models to see supported models." << std::endl;
     return 1;
   }
 
-  std::cout << "Model: " << model_info->config.model_name << "\n";
-  std::cout << "Architecture: " << model_info->config.model_type << "\n\n";
+  std::cout << "Model: " << model_info->config.model_name << std::endl;
+  std::cout << "Architecture: " << model_info->config.model_type << std::endl << std::endl;
 
-  // Set default paths if not specified
   if (config.weights_path.empty()) {
     std::string model_id = model_info->model_id;
     size_t slash = model_id.find('/');
@@ -316,26 +297,24 @@ int main(int argc, char* argv[]) {
     config.tokenizer_path = config.weights_path;
   }
 
-  // Handle download mode
   if (config.download) {
-    std::cout << "Downloading model: " << model_info->model_id << "\n";
+    std::cout << "Downloading model: " << model_info->model_id << std::endl << std::endl;
     WeightDownloader downloader(model_info->model_id);
     downloader.set_precision(config.precision);
 
     if (!downloader.download_and_export(config.weights_path)) {
-      std::cerr << "Failed to download and export weights!\n";
+      std::cerr << "Failed to download and export weights!" << std::endl;
       return 1;
     }
 
-    std::cout << "\nWeights downloaded successfully to: " << config.weights_path << "\n";
-    std::cout << "You can now run inference without --download flag.\n";
+    std::cout << "\nWeights downloaded successfully to: " << config.weights_path << std::endl << std::endl;
+    std::cout << "You can now run inference without --download flag." << std::endl;
     return 0;
   }
 
-  // Check if weights exist
   WeightDownloader downloader(model_info->model_id);
   if (!downloader.weights_exist(config.weights_path)) {
-    std::cout << "Model weights not found at: " << config.weights_path << "\n\n";
+    std::cout << "Model weights not found at: " << config.weights_path << std::endl << std::endl;
     std::cout << "Would you like to download them now? [Y/n]: ";
 
     std::string response;
@@ -344,32 +323,30 @@ int main(int argc, char* argv[]) {
     if (response.empty() || response[0] == 'Y' || response[0] == 'y') {
       downloader.set_precision(config.precision);
       if (!downloader.download_and_export(config.weights_path)) {
-        std::cerr << "Failed to download weights!\n";
+        std::cerr << "Failed to download weights!" << std::endl;
         return 1;
       }
       std::cout << "\n";
     } else {
-      std::cerr << "Cannot proceed without model weights.\n";
-      std::cerr << "Run with --download flag to download weights.\n";
+      std::cerr << "Cannot proceed without model weights." << std::endl;
+      std::cerr << "Run with --download flag to download weights." << std::endl;
       return 1;
     }
   }
 
-  // Load tokenizer
-  std::cout << "Loading tokenizer from: " << config.tokenizer_path << "\n";
+  std::cout << "Loading tokenizer from: " << config.tokenizer_path << std::endl;
   tokenizers::Tokenizer tokenizer;
   tokenizer.set_config(model_info->tokenizer_config);
   
   if (!tokenizer.load(config.tokenizer_path)) {
-    std::cerr << "Trying to download tokenizer...\n";
+    std::cerr << "Trying to download tokenizer..." << std::endl;
     if (!tokenizer.download_and_load(model_info->model_id, "weights")) {
-      std::cerr << "Failed to load tokenizer!\n";
+      std::cerr << "Failed to load tokenizer!" << std::endl;
       return 1;
     }
   }
-  std::cout << "Tokenizer loaded successfully (vocab size: " << tokenizer.vocab_size() << ")\n\n";
+  std::cout << "Tokenizer loaded successfully (vocab size: " << tokenizer.vocab_size() << ")" << std::endl << std::endl;
 
-  // Load model weights
   std::vector<std::string> weight_candidates = {
     config.weights_path + "/model.bin",
     config.weights_path + "/smollm2_weights.bin",
@@ -387,27 +364,25 @@ int main(int argc, char* argv[]) {
   }
   
   if (weights_file.empty()) {
-    std::cerr << "Model weights not found. Tried:\n";
+    std::cerr << "Model weights not found. Tried:" << std::endl;
     for (const auto& candidate : weight_candidates) {
-      std::cerr << "  - " << candidate << "\n";
+      std::cerr << "  - " << candidate << std::endl;
     }
-    std::cerr << "Run with --download flag to download weights from HuggingFace.\n";
+    std::cerr << "Run with --download flag to download weights from HuggingFace." << std::endl;
     return 1;
   }
   
-  std::cout << "Loading model weights from: " << weights_file << "\n";
+  std::cout << "Loading model weights from: " << weights_file << std::endl;
   ModelLoader loader(weights_file);
   if (!loader.load()) {
-    std::cerr << "Failed to load model weights!\n";
-    std::cerr << "Run with --download flag to download weights from HuggingFace.\n";
+    std::cerr << "Failed to load model weights!" << std::endl;
+    std::cerr << "Run with --download flag to download weights from HuggingFace." << std::endl;
     return 1;
   }
-  std::cout << "\n";
+  std::cout << std::endl;
 
-  // Initialize model with detected config
   auto model = models::create_model(loader, model_info->config);
 
-  // Setup sampling config
   SamplingConfig sampling_config;
   sampling_config.max_new_tokens = config.max_tokens;
   sampling_config.temperature = config.temperature;

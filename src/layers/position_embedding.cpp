@@ -3,9 +3,7 @@
 
 namespace layers {
 
-// ============================================================================
-// RoPE Implementation
-// ============================================================================
+// RoPE
 
 RoPE::RoPE(int head_dim, float theta, float scaling_factor)
     : head_dim_(head_dim), theta_(theta), scaling_factor_(scaling_factor) {}

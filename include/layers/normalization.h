@@ -15,8 +15,11 @@ public:
   /// @param weight Normalization weight (gamma)
   /// @param bias Optional bias (beta), nullptr if not used
   /// @return Normalized tensor of same shape as input
-  virtual Tensor forward(const Tensor& x, const Tensor& weight, 
-                         const Tensor* bias = nullptr) const = 0;
+  virtual Tensor forward(
+    const Tensor& x,
+    const Tensor& weight,
+    const Tensor* bias = nullptr
+  ) const = 0;
 };
 
 /// Root Mean Square Layer Normalization
@@ -25,8 +28,11 @@ class RMSNorm : public NormLayer {
 public:
   explicit RMSNorm(float eps = 1e-5f) : eps_(eps) {}
   
-  Tensor forward(const Tensor& x, const Tensor& weight,
-                 const Tensor* bias = nullptr) const override;
+  Tensor forward(
+    const Tensor& x,
+    const Tensor& weight,
+    const Tensor* bias = nullptr
+  ) const override;
   
   void set_eps(float eps) { eps_ = eps; }
   float eps() const { return eps_; }
@@ -41,8 +47,11 @@ class LayerNorm : public NormLayer {
 public:
   explicit LayerNorm(float eps = 1e-5f) : eps_(eps) {}
   
-  Tensor forward(const Tensor& x, const Tensor& weight,
-                 const Tensor* bias = nullptr) const override;
+  Tensor forward(
+    const Tensor& x,
+    const Tensor& weight,
+    const Tensor* bias = nullptr
+  ) const override;
   
   void set_eps(float eps) { eps_ = eps; }
   float eps() const { return eps_; }

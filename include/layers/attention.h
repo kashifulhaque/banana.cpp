@@ -105,9 +105,12 @@ private:
   Tensor linear_with_bias(const Tensor& x, const Tensor& weight, const Tensor& bias);
   
   // Q/K normalization helper (Qwen3)
-  void apply_qk_norm(Tensor& q, Tensor& k, 
-                     const Tensor* q_norm_weight, 
-                     const Tensor* k_norm_weight);
+  void apply_qk_norm(
+    Tensor& q,
+    Tensor& k,
+    const Tensor* q_norm_weight,
+    const Tensor* k_norm_weight
+  );
 };
 
 } // namespace layers

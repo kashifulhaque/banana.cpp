@@ -10,10 +10,7 @@
 
 namespace layers {
 
-// ============================================================================
-// KV Cache Implementation
-// ============================================================================
-
+// KV Cache
 void KVCache::init(int num_layers, int max_seq_len, int num_kv_heads, int head_dim) {
   key_cache.clear();
   value_cache.clear();
@@ -35,12 +32,9 @@ void KVCache::clear() {
   current_length = 0;
 }
 
-// ============================================================================
-// GroupedQueryAttention Implementation
-// ============================================================================
+// Grouped Query Attention
 
-GroupedQueryAttention::GroupedQueryAttention(const AttentionConfig& config)
-    : config_(config) {}
+GroupedQueryAttention::GroupedQueryAttention(const AttentionConfig& config) : config_(config) {}
 
 Tensor GroupedQueryAttention::linear(const Tensor& x, const Tensor& weight) {
   int in_features = weight.shape[1];
@@ -59,8 +53,11 @@ Tensor GroupedQueryAttention::linear(const Tensor& x, const Tensor& weight) {
   return output;
 }
 
-Tensor GroupedQueryAttention::linear_with_bias(const Tensor& x, const Tensor& weight, 
-                                                const Tensor& bias) {
+Tensor GroupedQueryAttention::linear_with_bias(
+  const Tensor& x,
+  const Tensor& weight,
+  const Tensor& bias
+) {
   Tensor output = linear(x, weight);
   
   int out_features = weight.shape[0];
@@ -75,9 +72,12 @@ Tensor GroupedQueryAttention::linear_with_bias(const Tensor& x, const Tensor& we
   return output;
 }
 
-void GroupedQueryAttention::apply_qk_norm(Tensor& q, Tensor& k,
-                                          const Tensor* q_norm_weight,
-                                          const Tensor* k_norm_weight) {
+void GroupedQueryAttention::apply_qk_norm(
+  Tensor& q,
+  Tensor& k,
+  const Tensor* q_norm_weight,
+  const Tensor* k_norm_weight
+) {
   if (!q_norm_weight || !k_norm_weight) {
     return;
   }
@@ -161,16 +161,17 @@ void GroupedQueryAttention::apply_qk_norm(Tensor& q, Tensor& k,
 }
 
 Tensor GroupedQueryAttention::forward(
-    const Tensor& x,
-    const Tensor& q_weight, const Tensor& k_weight,
-    const Tensor& v_weight, const Tensor& o_weight,
-    const PositionEmbedding& pos_embedding,
-    int start_pos,
-    const Tensor* q_bias,
-    const Tensor* k_bias,
-    const Tensor* v_bias,
-    const Tensor* q_norm_weight,
-    const Tensor* k_norm_weight) {
+  const Tensor& x,
+  const Tensor& q_weight, const Tensor& k_weight,
+  const Tensor& v_weight, const Tensor& o_weight,
+  const PositionEmbedding& pos_embedding,
+  int start_pos,
+  const Tensor* q_bias,
+  const Tensor* k_bias,
+  const Tensor* v_bias,
+  const Tensor* q_norm_weight,
+  const Tensor* k_norm_weight
+) {
   
   int seq_len = x.shape[0];
   int num_heads = config_.num_attention_heads;
@@ -180,12 +181,9 @@ Tensor GroupedQueryAttention::forward(
   int hidden_size = config_.hidden_size;
 
   // Project Q, K, V
-  Tensor q = (config_.use_qkv_bias && q_bias) ? linear_with_bias(x, q_weight, *q_bias) 
-                                              : linear(x, q_weight);
-  Tensor k = (config_.use_qkv_bias && k_bias) ? linear_with_bias(x, k_weight, *k_bias) 
-                                              : linear(x, k_weight);
-  Tensor v = (config_.use_qkv_bias && v_bias) ? linear_with_bias(x, v_weight, *v_bias) 
-                                              : linear(x, v_weight);
+  Tensor q = (config_.use_qkv_bias && q_bias) ? linear_with_bias(x, q_weight, *q_bias) : linear(x, q_weight);
+  Tensor k = (config_.use_qkv_bias && k_bias) ? linear_with_bias(x, k_weight, *k_bias) : linear(x, k_weight);
+  Tensor v = (config_.use_qkv_bias && v_bias) ? linear_with_bias(x, v_weight, *v_bias) : linear(x, v_weight);
 
   // Reshape for attention
   q.shape = {seq_len, num_heads, head_dim};

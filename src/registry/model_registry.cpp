@@ -199,9 +199,11 @@ TokenizerConfig ModelRegistry::infer_tokenizer_config(const LLMConfig& config) {
       if (config.model_name.find("SmolLM") != std::string::npos ||
           config.model_name.find("smollm") != std::string::npos) {
         tok_config = TokenizerPresets::smollm();
-      } else if (config.model_name.find("Llama-3") != std::string::npos ||
-                 config.model_name.find("llama-3") != std::string::npos ||
-                 config.bos_token_id > 100000) {
+      } else if (
+        config.model_name.find("Llama-3") != std::string::npos ||
+        config.model_name.find("llama-3") != std::string::npos ||
+        config.bos_token_id > 100000
+      ) {
         tok_config = TokenizerPresets::llama3();
       } else {
         tok_config = TokenizerPresets::llama2();

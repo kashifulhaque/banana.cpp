@@ -73,18 +73,26 @@ private:
   bool download_file_with_progress(const std::string &url, const std::string &output_path);
 
   /// Safetensors parsing
-  bool parse_safetensors_header(const std::string &filepath,
-                                 std::unordered_map<std::string, TensorInfo> &tensors,
-                                 int64_t &header_size);
+  bool parse_safetensors_header(
+    const std::string &filepath,
+    std::unordered_map<std::string, TensorInfo> &tensors,
+    int64_t &header_size
+  );
 
   /// Convert safetensors to custom binary format
-  bool convert_safetensors_to_binary(const std::string &safetensors_path,
-                                      const std::string &output_path);
+  bool convert_safetensors_to_binary(
+    const std::string &safetensors_path,
+    const std::string &output_path
+  );
 
   /// Write tensor data in target precision
   void write_tensor_data(std::ofstream &out, const float *data, size_t count);
-  void write_tensor_data(std::ofstream &out, const uint16_t *data, size_t count, 
-                         const std::string &src_dtype);
+  void write_tensor_data(
+    std::ofstream &out,
+    const uint16_t *data,
+    size_t count,
+    const std::string &src_dtype
+  );
 };
 
 #endif // UTILS_WEIGHT_DOWNLOADER_H

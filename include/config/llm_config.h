@@ -129,10 +129,7 @@ struct SamplingConfig {
 /// Predefined configurations for known models
 namespace ModelPresets {
 
-// ============================================================================
 // SmolLM2 Family
-// ============================================================================
-
 inline LLMConfig smollm2_135m() {
   LLMConfig cfg;
   cfg.model_type = "llama";
@@ -196,10 +193,7 @@ inline LLMConfig smollm2_1_7b() {
   return cfg;
 }
 
-// ============================================================================
 // Llama 3.2 Family
-// ============================================================================
-
 inline LLMConfig llama3_2_1b() {
   LLMConfig cfg;
   cfg.model_type = "llama";
@@ -244,10 +238,7 @@ inline LLMConfig llama3_2_3b() {
   return cfg;
 }
 
-// ============================================================================
 // Qwen Family
-// ============================================================================
-
 inline LLMConfig qwen3_0_6b() {
   LLMConfig cfg;
   cfg.model_type = "qwen2";

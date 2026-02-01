@@ -24,8 +24,10 @@ public:
   bool load(const std::string& tokenizer_dir, const TokenizerConfig& config);
 
   /// Download and load tokenizer from HuggingFace
-  bool download_and_load(const std::string& model_id, 
-                         const std::string& save_dir = "weights");
+  bool download_and_load(
+    const std::string& model_id,
+    const std::string& save_dir = "weights"
+  );
 
   /// Apply chat template for conversation
   std::string apply_chat_template(

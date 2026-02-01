@@ -66,8 +66,11 @@ protected:
   std::string layer_weight_name(int layer_idx, const std::string& suffix);
 
   // Sampling
-  int sample_token(const Tensor& logits, const SamplingConfig& config,
-                   const std::vector<int>& generated_tokens);
+  int sample_token(
+    const Tensor& logits,
+    const SamplingConfig& config,
+    const std::vector<int>& generated_tokens
+  );
 };
 
 /// Factory function to create model from config

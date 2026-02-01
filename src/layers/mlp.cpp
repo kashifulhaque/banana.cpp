@@ -13,9 +13,7 @@
 
 namespace layers {
 
-// ============================================================================
-// SwiGLU MLP Implementation
-// ============================================================================
+// SwiGLU MLP
 
 SwiGLUMLP::SwiGLUMLP(const MLPConfig& config) : config_(config) {}
 
@@ -67,8 +65,7 @@ void SwiGLUMLP::apply_activation(Tensor& x) const {
         break;
       case Activation::GELU:
       case Activation::GELU_NEW:
-        x.data[i] = 0.5f * val * (1.0f + std::tanh(std::sqrt(2.0f / M_PI) * 
-                    (val + 0.044715f * val * val * val)));
+        x.data[i] = 0.5f * val * (1.0f + std::tanh(std::sqrt(2.0f / M_PI) * (val + 0.044715f * val * val * val)));
         break;
       case Activation::RELU:
         x.data[i] = std::max(0.0f, val);
@@ -111,9 +108,7 @@ Tensor SwiGLUMLP::forward(
   return output;
 }
 
-// ============================================================================
-// Standard MLP Implementation
-// ============================================================================
+// Standard MLP
 
 StandardMLP::StandardMLP(const MLPConfig& config) : config_(config) {}
 

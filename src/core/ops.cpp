@@ -27,7 +27,6 @@ Tensor gelu(const Tensor &x) {
 Tensor softmax(const Tensor &x, int dim) {
   Tensor result = x;
   
-  // For simplicity, handle last dimension only
   if (dim == -1) {
     int features = x.shape.back();
     int outer_dim = x.data.size() / features;
@@ -81,8 +80,7 @@ Tensor layer_norm(const Tensor &x, const Tensor &gamma, const Tensor &beta) {
     // Normalize
     float std_inv = 1.0f / std::sqrt(variance + 1e-5f);
     for (int j = 0; j < features; ++j) {
-      result.data[i * features + j] = (x.data[i * features + j] - mean) * std_inv 
-                                      * gamma.data[j] + beta.data[j];
+      result.data[i * features + j] = (x.data[i * features + j] - mean) * std_inv * gamma.data[j] + beta.data[j];
     }
   }
   

@@ -8,9 +8,7 @@
 
 namespace layers {
 
-// ============================================================================
-// RMSNorm Implementation
-// ============================================================================
+// RMSNorm
 
 Tensor RMSNorm::forward(const Tensor& x, const Tensor& weight,
                         const Tensor* /*bias*/) const {
@@ -58,12 +56,9 @@ Tensor RMSNorm::forward(const Tensor& x, const Tensor& weight,
   return result;
 }
 
-// ============================================================================
-// LayerNorm Implementation
-// ============================================================================
+// LayerNorm
 
-Tensor LayerNorm::forward(const Tensor& x, const Tensor& weight,
-                          const Tensor* bias) const {
+Tensor LayerNorm::forward(const Tensor& x, const Tensor& weight, const Tensor* bias) const {
   int features = x.shape.back();
   int outer_dim = x.data.size() / features;
 

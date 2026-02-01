@@ -12,10 +12,6 @@
 
 namespace models {
 
-// ============================================================================
-// LLM Model Implementation
-// ============================================================================
-
 LLMModel::LLMModel(ModelLoader& loader, const LLMConfig& config)
     : loader_(loader), config_(config) {
   std::cout << "Initializing LLM model: " << config_.model_name << std::endl;
@@ -90,10 +86,6 @@ bool LLMModel::is_eos_token(int token_id) const {
   return false;
 }
 
-// ============================================================================
-// Embedding Layer
-// ============================================================================
-
 Tensor LLMModel::embedding(const std::vector<int>& input_ids) {
   const Tensor* embed_tokens = get_weight(config_.embed_tokens_pattern);
 
@@ -116,10 +108,6 @@ Tensor LLMModel::embedding(const std::vector<int>& input_ids) {
 
   return output;
 }
-
-// ============================================================================
-// Transformer Block
-// ============================================================================
 
 Tensor LLMModel::transformer_block(const Tensor& x, int layer_idx, int start_pos) {
   const Tensor* input_ln = get_weight(layer_weight_name(layer_idx, config_.input_layernorm));
@@ -289,10 +277,6 @@ Tensor LLMModel::transformer_block_with_cache(const Tensor& x, int layer_idx,
   return output;
 }
 
-// ============================================================================
-// Forward Pass
-// ============================================================================
-
 Tensor LLMModel::forward(const std::vector<int>& input_ids) {
   Tensor hidden_states = embedding(input_ids);
 
@@ -408,10 +392,6 @@ Tensor LLMModel::forward_with_cache(const std::vector<int>& input_ids,
   return logits;
 }
 
-// ============================================================================
-// Sampling
-// ============================================================================
-
 int LLMModel::sample_token(const Tensor& logits, const SamplingConfig& config,
                            const std::vector<int>& generated_tokens) {
   int vocab_size = logits.shape[0];
@@ -523,10 +503,6 @@ int LLMModel::sample_token(const Tensor& logits, const SamplingConfig& config,
   return vocab_size - 1;
 }
 
-// ============================================================================
-// Generation
-// ============================================================================
-
 std::vector<int> LLMModel::generate(const std::vector<int>& input_ids,
                                      const SamplingConfig& config,
                                      TokenCallback token_callback) {
@@ -570,10 +546,6 @@ std::vector<int> LLMModel::generate(const std::vector<int>& input_ids,
 
   return generated;
 }
-
-// ============================================================================
-// Factory
-// ============================================================================
 
 std::unique_ptr<LLMModel> create_model(ModelLoader& loader, const LLMConfig& config) {
   return std::make_unique<LLMModel>(loader, config);

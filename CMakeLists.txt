@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.15)
-project(llm_inference)
+project(banana-cpp)
 
 # Using C++20 to work around stdlib linker issues on macOS 26/Xcode 17
 set(CMAKE_CXX_STANDARD 20)
@@ -84,21 +84,21 @@ set(LLM_LIB_SOURCES
 add_library(llm_lib STATIC ${LLM_LIB_SOURCES})
 
 # Create main executable
-add_executable(llm_inference src/main.cpp)
-target_link_libraries(llm_inference PRIVATE llm_lib)
+add_executable(banana-cpp src/main.cpp)
+target_link_libraries(banana-cpp PRIVATE llm_lib)
 
 # Link Accelerate on macOS for fast BLAS
 if(APPLE)
     target_compile_definitions(llm_lib PRIVATE ACCELERATE_NEW_LAPACK)
     target_link_libraries(llm_lib PRIVATE "-framework Accelerate")
-    target_compile_definitions(llm_inference PRIVATE ACCELERATE_NEW_LAPACK)
-    target_link_libraries(llm_inference PRIVATE "-framework Accelerate")
+    target_compile_definitions(banana-cpp PRIVATE ACCELERATE_NEW_LAPACK)
+    target_link_libraries(banana-cpp PRIVATE "-framework Accelerate")
 endif()
 
 # Compiler flags
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(llm_lib PRIVATE -Wall -Wextra -O3 -march=native)
-    target_compile_options(llm_inference PRIVATE -Wall -Wextra -O3 -march=native)
+    target_compile_options(banana-cpp PRIVATE -Wall -Wextra -O3 -march=native)
 endif()
 
 # Optional: Enable OpenMP for parallel processing
@@ -119,14 +119,14 @@ endif()
 if(OpenMP_CXX_FOUND)
     if(TARGET OpenMP::OpenMP_CXX)
         target_link_libraries(llm_lib PUBLIC OpenMP::OpenMP_CXX)
-        target_link_libraries(llm_inference PUBLIC OpenMP::OpenMP_CXX)
+        target_link_libraries(banana-cpp PUBLIC OpenMP::OpenMP_CXX)
     elseif(OpenMP_omp_LIBRARY)
         target_compile_options(llm_lib PRIVATE -Xpreprocessor -fopenmp)
-        target_compile_options(llm_inference PRIVATE -Xpreprocessor -fopenmp)
+        target_compile_options(banana-cpp PRIVATE -Xpreprocessor -fopenmp)
         target_link_libraries(llm_lib PUBLIC ${OpenMP_omp_LIBRARY})
-        target_link_libraries(llm_inference PUBLIC ${OpenMP_omp_LIBRARY})
+        target_link_libraries(banana-cpp PUBLIC ${OpenMP_omp_LIBRARY})
         target_include_directories(llm_lib PRIVATE ${OPENMP_INCLUDE_DIR})
-        target_include_directories(llm_inference PRIVATE ${OPENMP_INCLUDE_DIR})
+        target_include_directories(banana-cpp PRIVATE ${OPENMP_INCLUDE_DIR})
     endif()
 endif()
 

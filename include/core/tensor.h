@@ -210,9 +210,8 @@ struct Tensor {
     int n = B.shape[1];
 
     Tensor C({m, n});
-
+    
 #if defined(__APPLE__)
-    // Use Accelerate BLAS for fast SGEMM on macOS
     cblas_sgemm(
       CblasRowMajor, CblasNoTrans, CblasNoTrans,
       m, n, k,

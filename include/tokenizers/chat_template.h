@@ -22,8 +22,10 @@ public:
   /// @param messages Vector of (role, content) pairs
   /// @param add_generation_prompt Whether to add assistant prompt at the end
   /// @return Formatted string ready for tokenization
-  virtual std::string apply(const Messages& messages, 
-                           bool add_generation_prompt = true) const = 0;
+  virtual std::string apply(
+    const Messages& messages,
+    bool add_generation_prompt = true
+  ) const = 0;
   
   /// Get/set default system prompt
   const std::string& default_system_prompt() const { return default_system_prompt_; }
@@ -42,8 +44,10 @@ public:
     default_system_prompt_ = default_system_prompt;
   }
   
-  std::string apply(const Messages& messages, 
-                   bool add_generation_prompt = true) const override;
+  std::string apply(
+    const Messages& messages,
+    bool add_generation_prompt = true
+  ) const override;
 };
 
 /// Llama 3 template
@@ -55,8 +59,10 @@ public:
     default_system_prompt_ = default_system_prompt;
   }
   
-  std::string apply(const Messages& messages, 
-                   bool add_generation_prompt = true) const override;
+  std::string apply(
+    const Messages& messages,
+    bool add_generation_prompt = true
+  ) const override;
 };
 
 /// Llama 2 template
@@ -68,8 +74,10 @@ public:
     default_system_prompt_ = default_system_prompt;
   }
   
-  std::string apply(const Messages& messages, 
-                   bool add_generation_prompt = true) const override;
+  std::string apply(
+    const Messages& messages,
+    bool add_generation_prompt = true
+  ) const override;
 };
 
 /// Mistral template
@@ -78,20 +86,26 @@ class MistralTemplate : public ChatTemplate {
 public:
   MistralTemplate() = default;
   
-  std::string apply(const Messages& messages, 
-                   bool add_generation_prompt = true) const override;
+  std::string apply(
+    const Messages& messages,
+    bool add_generation_prompt = true
+  ) const override;
 };
 
 /// No template - just concatenate messages
 class NoTemplate : public ChatTemplate {
 public:
-  std::string apply(const Messages& messages, 
-                   bool add_generation_prompt = true) const override;
+  std::string apply(
+    const Messages& messages,
+    bool add_generation_prompt = true
+  ) const override;
 };
 
 /// Factory function to create chat template from type
-std::unique_ptr<ChatTemplate> create_chat_template(ChatTemplateType type,
-                                                    const std::string& default_system_prompt = "");
+std::unique_ptr<ChatTemplate> create_chat_template(
+  ChatTemplateType type,
+  const std::string& default_system_prompt = ""
+);
 
 } // namespace tokenizers
 
